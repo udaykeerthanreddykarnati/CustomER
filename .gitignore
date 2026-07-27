@@ -1,0 +1,27 @@
+# macOS system files
+.DS_Store
+.AppleDouble
+.LSOverride
+
+# Executables & Build Artifacts
+*.o
+*.out
+CustomERApp
+CustomERApp_Test
+CustomERApp_ChildishTest
+bin/
+build/
+
+# User Data & Private Credentials
+gmail.json
+positions.json
+github.json
+theme.json
+*.key
+*.pem
+*.env
+
+# Temporary / User Specific Media
+CustomERPhotos/
+CustomERPhotos*/
+CustomERGifs/
