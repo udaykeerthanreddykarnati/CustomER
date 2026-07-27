@@ -3,15 +3,24 @@ import Foundation
 import IOKit.pwr_mgt
 import IOKit.ps
 
-// MARK: - Global Theme Colors
-var kBg          = NSColor(red: 254/255.0, green: 249/255.0, blue: 195/255.0, alpha: 1.00) // #FEF9C3 Pastel Butter
-let kBlue        = NSColor(red: 128/255.0, green: 0/255.0, blue: 32/255.0, alpha: 1.00)  // Rich Burgundy header & text (#800020)
-let kText        = NSColor(red: 128/255.0, green: 0/255.0, blue: 32/255.0, alpha: 1.00)  // #800020 Rich Burgundy
-let kAccent      = NSColor(red: 128/255.0, green: 0/255.0, blue: 32/255.0, alpha: 1.00)  // #800020 Rich Burgundy
-let kAddBg       = NSColor(red: 128/255.0, green: 0/255.0, blue: 32/255.0, alpha: 1.00)  // Rich Burgundy (#800020)
-let kDim         = NSColor(red: 0.35, green: 0.35, blue: 0.25, alpha: 1.00)            // Muted text
-let kSurface     = NSColor(red: 254/255.0, green: 252/255.0, blue: 232/255.0, alpha: 1.00) // #FEFCE8 Soft Cream
-let kBorder      = NSColor(red: 0.00, green: 0.00, blue: 0.00, alpha: 1.00)            // Solid Black Border
+// MARK: - Modern Dark Glass Theme Tokens
+var kBg          = NSColor(red: 9/255.0,   green: 13/255.0,  blue: 22/255.0,  alpha: 1.00) // #090D16 Deep Cyber Midnight
+let kBlue        = NSColor(red: 99/255.0,  green: 102/255.0, blue: 241/255.0, alpha: 1.00) // #6366F1 Electric Indigo
+let kText        = NSColor(red: 241/255.0, green: 245/255.0, blue: 249/255.0, alpha: 1.00) // #F1F5F9 Crystal White
+let kAccent      = NSColor(red: 139/255.0, green: 92/255.0,  blue: 246/255.0, alpha: 1.00) // #8B5CF6 Violet Glow
+let kAddBg       = NSColor(red: 16/255.0,  green: 185/255.0, blue: 129/255.0, alpha: 1.00) // #10B981 Emerald Green
+let kDim         = NSColor(red: 100/255.0, green: 116/255.0, blue: 139/255.0, alpha: 1.00) // #64748B Steel Slate
+let kSurface     = NSColor(red: 21/255.0,  green: 29/255.0,  blue: 42/255.0,  alpha: 1.00) // #151D2A Frosted Glass Card
+let kBorder      = NSColor(red: 38/255.0,  green: 51/255.0,  blue: 70/255.0,  alpha: 1.00) // #263346 Subtle Glass Border
+let kRadius: CGFloat = 24.0 // Ultra-smooth modern pill corners
+
+func modernFont(size: CGFloat, weight: NSFont.Weight = .regular) -> NSFont {
+    let base = NSFont.systemFont(ofSize: size, weight: weight)
+    if let descriptor = base.fontDescriptor.withDesign(.rounded) {
+        return NSFont(descriptor: descriptor, size: size) ?? base
+    }
+    return base
+}
 
 extension NSColor {
     convenience init?(hex: String) {
@@ -25,7 +34,7 @@ extension NSColor {
     }
 
     func toHex() -> String {
-        guard let rgb = usingColorSpace(.sRGB) else { return "#FEF9C3" }
+        guard let rgb = usingColorSpace(.sRGB) else { return "#090D16" }
         let r = Int(rgb.redComponent * 255)
         let g = Int(rgb.greenComponent * 255)
         let b = Int(rgb.blueComponent * 255)
@@ -79,7 +88,6 @@ class ThemeManager {
             DistributedNotificationCenter.default().postNotificationName(
                 ThemeManager.notifName, object: nil, userInfo: ["bgHex": hex], deliverImmediately: true
             )
-            // Debounce Folder Icon updates to prevent Finder redraw flicker!
             iconWorkItem?.cancel()
             let item = DispatchWorkItem {
                 FolderIconManager.updateDesktopFolderIcons(bgColor: newValue)
@@ -96,12 +104,12 @@ class FolderIconManager {
             let desktop = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Desktop")
             guard let files = try? FileManager.default.contentsOfDirectory(at: desktop, includingPropertiesForKeys: [.isDirectoryKey], options: [.skipsHiddenFiles]) else { return }
             
-            let burgundy = NSColor(red: 128/255.0, green: 0/255.0, blue: 32/255.0, alpha: 1.0)
+            let accent = NSColor(red: 99/255.0, green: 102/255.0, blue: 241/255.0, alpha: 1.0)
             
             for url in files {
                 var isDir: ObjCBool = false
                 if FileManager.default.fileExists(atPath: url.path, isDirectory: &isDir), isDir.boolValue, url.pathExtension != "app" {
-                    let icon = generateFolderIcon(folderName: url.lastPathComponent, bgColor: bgColor, accentColor: burgundy)
+                    let icon = generateFolderIcon(folderName: url.lastPathComponent, bgColor: bgColor, accentColor: accent)
                     NSWorkspace.shared.setIcon(icon, forFile: url.path, options: [])
                 }
             }
@@ -114,30 +122,30 @@ class FolderIconManager {
         img.lockFocus()
         
         // Draw back tab
-        let tabPath = NSBezierPath(roundedRect: NSRect(x: 72, y: 310, width: 180, height: 90), xRadius: 18, yRadius: 18)
+        let tabPath = NSBezierPath(roundedRect: NSRect(x: 72, y: 310, width: 180, height: 90), xRadius: 24, yRadius: 24)
         bgColor.setFill()
         tabPath.fill()
-        NSColor.black.setStroke()
-        tabPath.lineWidth = 10
+        accentColor.setStroke()
+        tabPath.lineWidth = 6
         tabPath.stroke()
         
         // Draw front folder body
-        let bodyPath = NSBezierPath(roundedRect: NSRect(x: 56, y: 96, width: 400, height: 260), xRadius: 28, yRadius: 28)
+        let bodyPath = NSBezierPath(roundedRect: NSRect(x: 56, y: 96, width: 400, height: 260), xRadius: 32, yRadius: 32)
         bgColor.setFill()
         bodyPath.fill()
-        NSColor.black.setStroke()
-        bodyPath.lineWidth = 10
+        accentColor.setStroke()
+        bodyPath.lineWidth = 6
         bodyPath.stroke()
         
         // Draw top accent banner
-        let bannerPath = NSBezierPath(roundedRect: NSRect(x: 56, y: 300, width: 400, height: 56), xRadius: 14, yRadius: 14)
+        let bannerPath = NSBezierPath(roundedRect: NSRect(x: 56, y: 300, width: 400, height: 56), xRadius: 16, yRadius: 16)
         accentColor.setFill()
         bannerPath.fill()
 
         // Draw Folder Title text on front
         let attr: [NSAttributedString.Key: Any] = [
-            .font: NSFont.systemFont(ofSize: 32, weight: .black),
-            .foregroundColor: accentColor
+            .font: modernFont(size: 30, weight: .black),
+            .foregroundColor: NSColor.white
         ]
         let titleStr = folderName.uppercased()
         let strSize = titleStr.size(withAttributes: attr)
@@ -202,7 +210,6 @@ class MasterWidgetWindow: NSWindow {
     override var canBecomeMain: Bool { true }
 }
 
-// MARK: - Helper AppleScript Runner
 func runScript(_ code: String) -> String {
     var err: NSDictionary?
     if let sc = NSAppleScript(source: code) {
@@ -211,7 +218,7 @@ func runScript(_ code: String) -> String {
     return ""
 }
 
-// MARK: - 1. REMINDERS WIDGET (Exact Original tututodo)
+// MARK: - 1. REMINDERS WIDGET (Modern Dark Glass)
 struct Reminder: Codable {
     var id: UUID
     var title: String
@@ -260,19 +267,19 @@ class ReminderRowView: NSView {
     required init?(coder: NSCoder) { fatalError() }
 
     private func build() {
-        wantsLayer = true; layer?.cornerRadius = 0; layer?.backgroundColor = kSurface.cgColor
-        layer?.borderWidth = 0.0
+        wantsLayer = true; layer?.cornerRadius = 14.0; layer?.backgroundColor = kSurface.cgColor
+        layer?.borderWidth = 1.0; layer?.borderColor = kBorder.cgColor
 
         check.isBordered = false; check.bezelStyle = .regularSquare; check.setButtonType(.momentaryChange)
-        check.wantsLayer = true; check.layer?.cornerRadius = 0; check.layer?.borderWidth = 1.5; check.layer?.borderColor = kBorder.cgColor
-        check.layer?.backgroundColor = reminder.isCompleted ? kBorder.cgColor : NSColor.clear.cgColor
+        check.wantsLayer = true; check.layer?.cornerRadius = 9.0; check.layer?.borderWidth = 1.5; check.layer?.borderColor = kBlue.cgColor
+        check.layer?.backgroundColor = reminder.isCompleted ? kBlue.cgColor : NSColor.clear.cgColor
         if reminder.isCompleted {
-            check.attributedTitle = NSAttributedString(string: "✓", attributes: [.font: NSFont.systemFont(ofSize: 10, weight: .bold), .foregroundColor: NSColor.white])
+            check.attributedTitle = NSAttributedString(string: "✓", attributes: [.font: modernFont(size: 11, weight: .bold), .foregroundColor: NSColor.white])
         } else { check.title = "" }
         check.target = self; check.action = #selector(toggleTapped); addSubview(check)
 
         label.isBordered = false; label.backgroundColor = .clear; label.isEditable = false
-        label.font = NSFont.systemFont(ofSize: 13, weight: .medium); label.lineBreakMode = .byTruncatingTail
+        label.font = modernFont(size: 13, weight: .medium); label.lineBreakMode = .byTruncatingTail
         if reminder.isCompleted {
             let s = NSMutableAttributedString(string: reminder.title)
             let r = NSRange(location: 0, length: reminder.title.count)
@@ -281,14 +288,14 @@ class ReminderRowView: NSView {
             label.attributedStringValue = s
         } else {
             label.stringValue = reminder.title
-            label.textColor = kBlue
+            label.textColor = kText
         }
         let dclick = NSClickGestureRecognizer(target: self, action: #selector(editTapped))
         dclick.numberOfClicksRequired = 2
         label.addGestureRecognizer(dclick)
         addSubview(label)
 
-        del.title = "✕"; del.font = NSFont.systemFont(ofSize: 10); del.isBordered = false
+        del.title = "✕"; del.font = modernFont(size: 11, weight: .bold); del.isBordered = false
         del.contentTintColor = kDim; del.target = self; del.action = #selector(deleteTapped); del.alphaValue = 0
         addSubview(del)
 
@@ -306,13 +313,12 @@ class ReminderRowView: NSView {
 
     override func mouseEntered(with event: NSEvent) {
         NSAnimationContext.runAnimationGroup { ctx in
-            ctx.duration = 0.10; del.animator().alphaValue = 0.9; layer?.borderWidth = 0.5
-            layer?.backgroundColor = NSColor(red: 254/255.0, green: 240/255.0, blue: 138/255.0, alpha: 1.0).cgColor
+            ctx.duration = 0.10; del.animator().alphaValue = 0.9; layer?.borderColor = kBlue.cgColor
         }
     }
     override func mouseExited(with event: NSEvent) {
         NSAnimationContext.runAnimationGroup { ctx in
-            ctx.duration = 0.10; del.animator().alphaValue = 0; layer?.borderWidth = 0.0; layer?.backgroundColor = kSurface.cgColor
+            ctx.duration = 0.10; del.animator().alphaValue = 0; layer?.borderColor = kBorder.cgColor
         }
     }
 
@@ -321,7 +327,7 @@ class ReminderRowView: NSView {
     @objc func editTapped() {
         guard let window = self.window else { return }
         let alert = NSAlert()
-        alert.messageText = "Edit todo"
+        alert.messageText = "Edit task"
         alert.addButton(withTitle: "Save"); alert.addButton(withTitle: "Cancel")
         let tf = NSTextField(frame: NSRect(x: 0, y: 0, width: 260, height: 24))
         tf.stringValue = reminder.title
@@ -349,19 +355,19 @@ class AddPanel: NSView {
     required init?(coder: NSCoder) { fatalError() }
 
     private func build() {
-        wantsLayer = true; layer?.cornerRadius = 0; layer?.backgroundColor = kBg.cgColor
-        layer?.borderWidth = 2; layer?.borderColor = kBorder.cgColor
+        wantsLayer = true; layer?.cornerRadius = kRadius; layer?.backgroundColor = kBg.cgColor
+        layer?.borderWidth = 1.5; layer?.borderColor = kBlue.cgColor
 
-        titleField.drawsBackground = true; titleField.backgroundColor = .white; titleField.textColor = .black
-        titleField.font = NSFont.systemFont(ofSize: 14, weight: .bold); titleField.focusRingType = .none
-        titleField.isBordered = true; titleField.bezelStyle = .squareBezel; titleField.wantsLayer = true
-        titleField.layer?.cornerRadius = 0; titleField.layer?.borderWidth = 2; titleField.layer?.borderColor = kBorder.cgColor
+        titleField.drawsBackground = true; titleField.backgroundColor = kSurface; titleField.textColor = kText
+        titleField.font = modernFont(size: 13, weight: .bold); titleField.focusRingType = .none
+        titleField.isBordered = false; titleField.wantsLayer = true
+        titleField.layer?.cornerRadius = 14; titleField.layer?.borderWidth = 1; titleField.layer?.borderColor = kBorder.cgColor
 
-        let pAttrs: [NSAttributedString.Key: Any] = [.foregroundColor: NSColor(white: 0.45, alpha: 1.0), .font: NSFont.systemFont(ofSize: 13, weight: .medium)]
-        titleField.placeholderAttributedString = NSAttributedString(string: "What to do?", attributes: pAttrs)
+        let pAttrs: [NSAttributedString.Key: Any] = [.foregroundColor: kDim, .font: modernFont(size: 13, weight: .medium)]
+        titleField.placeholderAttributedString = NSAttributedString(string: "What's on your mind?", attributes: pAttrs)
         addSubview(titleField)
 
-        styleBtn(addBtn, primary: true, title: "Add")
+        styleBtn(addBtn, primary: true, title: "Add Task")
         addBtn.target = self; addBtn.action = #selector(addTapped); addSubview(addBtn)
 
         styleBtn(cancelBtn, primary: false, title: "Cancel")
@@ -369,10 +375,10 @@ class AddPanel: NSView {
     }
 
     private func styleBtn(_ b: NSButton, primary: Bool, title: String) {
-        b.title = title; b.isBordered = false; b.wantsLayer = true; b.layer?.cornerRadius = 0
-        b.layer?.borderWidth = 1.5; b.layer?.borderColor = kBorder.cgColor; b.font = NSFont.systemFont(ofSize: 12, weight: .bold)
-        b.layer?.backgroundColor = primary ? kAddBg.cgColor : NSColor(red: 245/255.0, green: 238/255.0, blue: 70/255.0, alpha: 1).cgColor
-        b.contentTintColor = primary ? .white : .black
+        b.title = title; b.isBordered = false; b.wantsLayer = true; b.layer?.cornerRadius = 14
+        b.layer?.borderWidth = 1; b.layer?.borderColor = kBorder.cgColor; b.font = modernFont(size: 12, weight: .bold)
+        b.layer?.backgroundColor = primary ? kBlue.cgColor : kSurface.cgColor
+        b.contentTintColor = primary ? .white : kText
     }
 
     override func layout() {
@@ -393,7 +399,7 @@ class AddPanel: NSView {
     @objc func addTapped() {
         let t = titleField.stringValue.trimmingCharacters(in: .whitespaces)
         guard !t.isEmpty else {
-            titleField.layer?.borderColor = NSColor.red.cgColor; titleField.layer?.borderWidth = 2; return
+            titleField.layer?.borderColor = NSColor.red.cgColor; titleField.layer?.borderWidth = 1.5; return
         }
         onAdd?(Reminder(title: t))
     }
@@ -423,29 +429,30 @@ class TodoView: NSView {
     required init?(coder: NSCoder) { fatalError() }
 
     private func build() {
-        wantsLayer = true; layer?.cornerRadius = 0; layer?.backgroundColor = ThemeManager.shared.currentBgColor.cgColor
+        wantsLayer = true; layer?.cornerRadius = kRadius; layer?.backgroundColor = ThemeManager.shared.currentBgColor.cgColor
+        layer?.borderWidth = 1.5; layer?.borderColor = kBorder.cgColor
 
-        header.stringValue = "tututodo"
-        header.font = NSFont.systemFont(ofSize: 17, weight: .bold); header.textColor = kBlue
+        header.stringValue = "TASKS"
+        header.font = modernFont(size: 15, weight: .black); header.textColor = kText
         header.isEditable = false; header.isBordered = false; header.backgroundColor = .clear
         addSubview(header)
 
-        badge.font = NSFont.systemFont(ofSize: 10, weight: .bold); badge.textColor = kBlue; badge.alignment = .center
-        badge.isEditable = false; badge.isBordered = false; badge.backgroundColor = .clear; badge.wantsLayer = true
-        badge.layer?.cornerRadius = 0; badge.layer?.borderWidth = 1; badge.layer?.borderColor = kBorder.cgColor
-        badge.layer?.backgroundColor = NSColor.white.cgColor
+        let badgeCell = CenteredTextFieldCell(textCell: "0")
+        badgeCell.alignment = .center; badgeCell.font = modernFont(size: 10, weight: .bold); badgeCell.textColor = .white
+        badge.cell = badgeCell; badge.isEditable = false; badge.isBordered = false; badge.backgroundColor = .clear; badge.wantsLayer = true
+        badge.layer?.cornerRadius = 10; badge.layer?.backgroundColor = kBlue.cgColor
         addSubview(badge)
 
         activeTabBtn.target = self; activeTabBtn.action = #selector(activeTabTapped); addSubview(activeTabBtn)
         doneTabBtn.target   = self; doneTabBtn.action   = #selector(doneTabTapped); addSubview(doneTabBtn)
         updateTabStyles()
 
-        addBtn.title = "+ Add"; addBtn.font = NSFont.systemFont(ofSize: 12, weight: .bold); addBtn.isBordered = false
-        addBtn.wantsLayer = true; addBtn.layer?.cornerRadius = 0; addBtn.layer?.backgroundColor = kAddBg.cgColor
+        addBtn.title = "+ Add"; addBtn.font = modernFont(size: 11, weight: .bold); addBtn.isBordered = false
+        addBtn.wantsLayer = true; addBtn.layer?.cornerRadius = 12; addBtn.layer?.backgroundColor = kBlue.cgColor
         addBtn.contentTintColor = .white; addBtn.target = self; addBtn.action = #selector(showPanel); addSubview(addBtn)
 
-        clearBtn.title = "Clear Done"; clearBtn.font = NSFont.systemFont(ofSize: 11, weight: .medium)
-        clearBtn.isBordered = false; clearBtn.contentTintColor = kBlue; clearBtn.target = self; clearBtn.action = #selector(clearDone); addSubview(clearBtn)
+        clearBtn.title = "Clear Done"; clearBtn.font = modernFont(size: 11, weight: .bold)
+        clearBtn.isBordered = false; clearBtn.contentTintColor = kDim; clearBtn.target = self; clearBtn.action = #selector(clearDone); addSubview(clearBtn)
 
         scroll.hasVerticalScroller = true; scroll.autohidesScrollers = true; scroll.drawsBackground = false; scroll.documentView = list; addSubview(scroll)
 
@@ -458,9 +465,9 @@ class TodoView: NSView {
     override func layout() {
         super.layout()
         let w = bounds.width, h = bounds.height
-        header.frame    = NSRect(x: 16, y: h - 42, width: 120, height: 24)
-        badge.frame     = NSRect(x: 140, y: h - 37, width: 26, height: 18)
-        addBtn.frame    = NSRect(x: w - 78, y: h - 40, width: 64, height: 24)
+        header.frame    = NSRect(x: 16, y: h - 42, width: 100, height: 24)
+        badge.frame     = NSRect(x: 100, y: h - 39, width: 24, height: 18)
+        addBtn.frame    = NSRect(x: w - 74, y: h - 40, width: 60, height: 24)
 
         let tabW = (w - 28) / 2
         activeTabBtn.frame = NSRect(x: 14, y: h - 72, width: tabW, height: 24)
@@ -480,12 +487,12 @@ class TodoView: NSView {
         styleTabButton(doneTabBtn, title: "Done", isActive: filterIdx == 1)
     }
     private func styleTabButton(_ btn: NSButton, title: String, isActive: Bool) {
-        btn.isBordered = false; btn.wantsLayer = true; btn.layer?.cornerRadius = 0
-        btn.layer?.borderWidth = isActive ? 1.5 : 0; btn.layer?.borderColor = kBlue.cgColor
-        btn.layer?.backgroundColor = isActive ? NSColor.white.cgColor : NSColor.clear.cgColor
+        btn.isBordered = false; btn.wantsLayer = true; btn.layer?.cornerRadius = 12
+        btn.layer?.borderWidth = isActive ? 1.0 : 0; btn.layer?.borderColor = kBorder.cgColor
+        btn.layer?.backgroundColor = isActive ? kSurface.cgColor : NSColor.clear.cgColor
         btn.attributedTitle = NSAttributedString(string: title, attributes: [
-            .font: NSFont.systemFont(ofSize: 11, weight: isActive ? .bold : .medium),
-            .foregroundColor: kBlue
+            .font: modernFont(size: 11, weight: isActive ? .bold : .medium),
+            .foregroundColor: isActive ? kText : kDim
         ])
     }
 
@@ -520,7 +527,7 @@ class TodoView: NSView {
 
     private func relayoutList() {
         let filterList = filtered()
-        let itemH: CGFloat = 36, gap: CGFloat = 6
+        let itemH: CGFloat = 38, gap: CGFloat = 6
         let totalH = max(scroll.bounds.height, CGFloat(filterList.count) * (itemH + gap))
         list.frame = NSRect(x: 0, y: 0, width: scroll.bounds.width, height: totalH)
 
@@ -550,9 +557,7 @@ class TodoView: NSView {
     func doEdit(_ id: UUID, _ title: String) { ReminderStore.shared.updateTitle(id: id, title: title); reload() }
     @objc func clearDone() { ReminderStore.shared.clearCompleted(); reload() }
 
-    private func listenForThemeChanges() {
-        DistributedNotificationCenter.default().addObserver(self, selector: #selector(onThemeChanged), name: ThemeManager.notifName, object: nil)
-    }
+    private func listenForThemeChanges() { DistributedNotificationCenter.default().addObserver(self, selector: #selector(onThemeChanged), name: ThemeManager.notifName, object: nil) }
     @objc private func onThemeChanged() {
         DispatchQueue.main.async {
             CATransaction.begin()
@@ -574,7 +579,7 @@ class TodoView: NSView {
     }
 }
 
-// MARK: - 2. MONTHLY CALENDAR WIDGET (tutucalendar)
+// MARK: - 2. MONTHLY CALENDAR WIDGET (Modern Dark Glass)
 class CalendarView: NSView {
     let widgetKey = "calendar"
     private let titleLabel = NSTextField()
@@ -585,20 +590,21 @@ class CalendarView: NSView {
     required init?(coder: NSCoder) { fatalError() }
 
     private func build() {
-        wantsLayer = true; layer?.cornerRadius = 0; layer?.backgroundColor = ThemeManager.shared.currentBgColor.cgColor
+        wantsLayer = true; layer?.cornerRadius = kRadius; layer?.backgroundColor = ThemeManager.shared.currentBgColor.cgColor
+        layer?.borderWidth = 1.5; layer?.borderColor = kBorder.cgColor
 
-        titleLabel.font = NSFont.systemFont(ofSize: 13, weight: .black); titleLabel.textColor = kText
+        titleLabel.font = modernFont(size: 13, weight: .black); titleLabel.textColor = kText
         titleLabel.isEditable = false; titleLabel.isBordered = false; titleLabel.backgroundColor = .clear; addSubview(titleLabel)
 
         let headers = ["S", "M", "T", "W", "T", "F", "S"]
         for h in headers {
-            let lbl = NSTextField(labelWithString: h); lbl.font = NSFont.systemFont(ofSize: 10, weight: .black); lbl.textColor = kDim; lbl.alignment = .center
+            let lbl = NSTextField(labelWithString: h); lbl.font = modernFont(size: 10, weight: .bold); lbl.textColor = kDim; lbl.alignment = .center
             addSubview(lbl); dayViews.append(lbl)
         }
 
         for _ in 0..<35 {
-            let lbl = NSTextField(); lbl.font = NSFont.systemFont(ofSize: 11, weight: .bold); lbl.alignment = .center
-            lbl.isEditable = false; lbl.isBordered = false; lbl.backgroundColor = .clear; lbl.wantsLayer = true; lbl.layer?.cornerRadius = 0
+            let lbl = NSTextField(); lbl.font = modernFont(size: 11, weight: .bold); lbl.alignment = .center
+            lbl.isEditable = false; lbl.isBordered = false; lbl.backgroundColor = .clear; lbl.wantsLayer = true; lbl.layer?.cornerRadius = 10
             addSubview(lbl); dayViews.append(lbl)
         }
         updateCalendar()
@@ -607,7 +613,7 @@ class CalendarView: NSView {
     override func layout() {
         super.layout()
         let w = bounds.width, h = bounds.height
-        titleLabel.frame = NSRect(x: 12, y: h - 30, width: w - 24, height: 20)
+        titleLabel.frame = NSRect(x: 14, y: h - 30, width: w - 28, height: 20)
         let gridX: CGFloat = 12, gridY: CGFloat = 10, colW = (w - 24) / 7.0, rowH = (h - 42) / 6.0
         for i in 0..<7 { dayViews[i].frame = NSRect(x: gridX + CGFloat(i) * colW, y: gridY + 5 * rowH, width: colW, height: rowH) }
         for r in 0..<5 {
@@ -632,9 +638,9 @@ class CalendarView: NSView {
             if dNum >= 1 && dNum <= numDays {
                 lbl.stringValue = "\(dNum)"
                 if dNum == today {
-                    lbl.backgroundColor = kText; lbl.textColor = .white; lbl.font = NSFont.systemFont(ofSize: 11, weight: .black)
+                    lbl.backgroundColor = kBlue; lbl.textColor = .white; lbl.font = modernFont(size: 11, weight: .black)
                 } else {
-                    lbl.backgroundColor = .clear; lbl.textColor = kText; lbl.font = NSFont.systemFont(ofSize: 11, weight: .bold)
+                    lbl.backgroundColor = .clear; lbl.textColor = kText; lbl.font = modernFont(size: 11, weight: .medium)
                 }
             } else { lbl.stringValue = ""; lbl.backgroundColor = .clear }
         }
@@ -662,7 +668,7 @@ class CalendarView: NSView {
     }
 }
 
-// MARK: - 3. BATTERY & DEVICES WIDGET (tutubattery - NO Emojis!)
+// MARK: - 3. BATTERY & DEVICES WIDGET (Modern Dark Glass)
 class BatteryView: NSView {
     let widgetKey = "battery"
     private let macCard = NSView()
@@ -683,27 +689,28 @@ class BatteryView: NSView {
     required init?(coder: NSCoder) { fatalError() }
 
     private func build() {
-        wantsLayer = true; layer?.cornerRadius = 0; layer?.backgroundColor = ThemeManager.shared.currentBgColor.cgColor
+        wantsLayer = true; layer?.cornerRadius = kRadius; layer?.backgroundColor = ThemeManager.shared.currentBgColor.cgColor
+        layer?.borderWidth = 1.5; layer?.borderColor = kBorder.cgColor
 
-        macCard.wantsLayer = true; macCard.layer?.cornerRadius = 0; macCard.layer?.backgroundColor = kSurface.cgColor
-        macCard.layer?.borderWidth = 1.5; macCard.layer?.borderColor = kBorder.cgColor; addSubview(macCard)
+        macCard.wantsLayer = true; macCard.layer?.cornerRadius = 18; macCard.layer?.backgroundColor = kSurface.cgColor
+        macCard.layer?.borderWidth = 1.0; macCard.layer?.borderColor = kBorder.cgColor; addSubview(macCard)
 
-        macPctLabel.font = NSFont.monospacedDigitSystemFont(ofSize: 32, weight: .black); macPctLabel.textColor = kText
+        macPctLabel.font = modernFont(size: 32, weight: .black); macPctLabel.textColor = kText
         macPctLabel.isEditable = false; macPctLabel.isBordered = false; macPctLabel.backgroundColor = .clear; macCard.addSubview(macPctLabel)
 
         let statusCell = CenteredTextFieldCell(textCell: "")
-        statusCell.alignment = .center; statusCell.font = NSFont.systemFont(ofSize: 11, weight: .bold); statusCell.textColor = .white
+        statusCell.alignment = .center; statusCell.font = modernFont(size: 10, weight: .bold); statusCell.textColor = .white
         macStatusLabel.cell = statusCell; macStatusLabel.isEditable = false; macStatusLabel.isBordered = false
-        macStatusLabel.wantsLayer = true; macStatusLabel.layer?.cornerRadius = 0; macStatusLabel.layer?.backgroundColor = kAccent.cgColor
-        macStatusLabel.layer?.borderWidth = 1.5; macStatusLabel.layer?.borderColor = kBorder.cgColor; macCard.addSubview(macStatusLabel)
+        macStatusLabel.wantsLayer = true; macStatusLabel.layer?.cornerRadius = 10; macStatusLabel.layer?.backgroundColor = kAccent.cgColor
+        macStatusLabel.layer?.borderWidth = 1.0; macStatusLabel.layer?.borderColor = kBorder.cgColor; macCard.addSubview(macStatusLabel)
 
-        macProgressBar.wantsLayer = true; macProgressBar.layer?.cornerRadius = 0; macProgressBar.layer?.backgroundColor = NSColor.white.cgColor
-        macProgressBar.layer?.borderWidth = 1.5; macProgressBar.layer?.borderColor = kBorder.cgColor; macCard.addSubview(macProgressBar)
+        macProgressBar.wantsLayer = true; macProgressBar.layer?.cornerRadius = 6; macProgressBar.layer?.backgroundColor = kBg.cgColor
+        macProgressBar.layer?.borderWidth = 1.0; macProgressBar.layer?.borderColor = kBorder.cgColor; macCard.addSubview(macProgressBar)
 
-        macProgressFill.wantsLayer = true; macProgressFill.layer?.backgroundColor = kAccent.cgColor; macProgressBar.addSubview(macProgressFill)
+        macProgressFill.wantsLayer = true; macProgressFill.layer?.cornerRadius = 5; macProgressFill.layer?.backgroundColor = kBlue.cgColor; macProgressBar.addSubview(macProgressFill)
 
         btHeaderLabel.stringValue = "BLUETOOTH DEVICES"
-        btHeaderLabel.font = NSFont.systemFont(ofSize: 10, weight: .bold); btHeaderLabel.textColor = kDim
+        btHeaderLabel.font = modernFont(size: 10, weight: .bold); btHeaderLabel.textColor = kDim
         btHeaderLabel.isEditable = false; btHeaderLabel.isBordered = false; btHeaderLabel.backgroundColor = .clear; addSubview(btHeaderLabel)
 
         addSubview(btListContainer)
@@ -715,7 +722,7 @@ class BatteryView: NSView {
         macCard.frame = NSRect(x: 12, y: h - 100, width: w - 24, height: 88)
         macPctLabel.frame = NSRect(x: 12, y: 40, width: 120, height: 38)
         macStatusLabel.frame = NSRect(x: w - 136, y: 46, width: 98, height: 26)
-        macProgressBar.frame = NSRect(x: 12, y: 14, width: w - 48, height: 18)
+        macProgressBar.frame = NSRect(x: 12, y: 14, width: w - 48, height: 14)
 
         btHeaderLabel.frame = NSRect(x: 14, y: h - 124, width: w - 28, height: 16)
         btListContainer.frame = NSRect(x: 12, y: 12, width: w - 24, height: h - 142)
@@ -806,7 +813,7 @@ class BatteryView: NSView {
 
         if devices.isEmpty {
             let noDevLabel = NSTextField(labelWithString: "No Bluetooth devices connected")
-            noDevLabel.font = NSFont.systemFont(ofSize: 11, weight: .medium); noDevLabel.textColor = kDim; noDevLabel.alignment = .center
+            noDevLabel.font = modernFont(size: 11, weight: .medium); noDevLabel.textColor = kDim; noDevLabel.alignment = .center
             noDevLabel.frame = NSRect(x: 0, y: (btListContainer.bounds.height - 20)/2, width: btListContainer.bounds.width, height: 20)
             btListContainer.addSubview(noDevLabel)
             return
@@ -816,12 +823,12 @@ class BatteryView: NSView {
         for (i, dev) in devices.enumerated() {
             let y = btListContainer.bounds.height - CGFloat(i + 1) * (itemH + gap)
             let devCard = NSView(frame: NSRect(x: 0, y: y, width: containerW, height: itemH))
-            devCard.wantsLayer = true; devCard.layer?.cornerRadius = 0; devCard.layer?.backgroundColor = kSurface.cgColor
-            devCard.layer?.borderWidth = 1.5; devCard.layer?.borderColor = kBorder.cgColor
+            devCard.wantsLayer = true; devCard.layer?.cornerRadius = 14; devCard.layer?.backgroundColor = kSurface.cgColor
+            devCard.layer?.borderWidth = 1.0; devCard.layer?.borderColor = kBorder.cgColor
 
             let nameTF = NSTextField()
-            let nameCell = CenteredTextFieldCell(textCell: dev.name) // Clean Name (NO EMOJI!)
-            nameCell.font = NSFont.systemFont(ofSize: 12, weight: .bold); nameCell.textColor = kText; nameCell.lineBreakMode = .byTruncatingTail
+            let nameCell = CenteredTextFieldCell(textCell: dev.name)
+            nameCell.font = modernFont(size: 12, weight: .bold); nameCell.textColor = kText; nameCell.lineBreakMode = .byTruncatingTail
             nameTF.cell = nameCell; nameTF.stringValue = dev.name
             nameTF.isEditable = false; nameTF.isBordered = false; nameTF.backgroundColor = .clear
             nameTF.frame = NSRect(x: 10, y: 8, width: containerW - 74, height: 24)
@@ -830,11 +837,11 @@ class BatteryView: NSView {
             let batVal = dev.battery ?? 100
             let badgeTF = NSTextField()
             let badgeCell = CenteredTextFieldCell(textCell: "\(batVal)%")
-            badgeCell.alignment = .center; badgeCell.font = NSFont.systemFont(ofSize: 11, weight: .bold); badgeCell.textColor = .white
+            badgeCell.alignment = .center; badgeCell.font = modernFont(size: 10, weight: .bold); badgeCell.textColor = .white
             badgeTF.cell = badgeCell; badgeTF.stringValue = "\(batVal)%"
             badgeTF.isEditable = false; badgeTF.isBordered = false
-            badgeTF.wantsLayer = true; badgeTF.layer?.cornerRadius = 0; badgeTF.layer?.backgroundColor = kAccent.cgColor
-            badgeTF.layer?.borderWidth = 1.5; badgeTF.layer?.borderColor = kBorder.cgColor
+            badgeTF.wantsLayer = true; badgeTF.layer?.cornerRadius = 10; badgeTF.layer?.backgroundColor = kBlue.cgColor
+            badgeTF.layer?.borderWidth = 1.0; badgeTF.layer?.borderColor = kBorder.cgColor
             badgeTF.frame = NSRect(x: containerW - 60, y: 8, width: 48, height: 24)
             devCard.addSubview(badgeTF)
 
@@ -864,7 +871,7 @@ class BatteryView: NSView {
     }
 }
 
-// MARK: - 4. DIGITAL CLOCK WIDGET (tutuclock - NO SECONDS!)
+// MARK: - 4. DIGITAL CLOCK WIDGET (Modern Dark Glass)
 class DigitalClockView: NSView {
     let widgetKey = "digital_clock"
     private let timeLabel = NSTextField()
@@ -876,19 +883,20 @@ class DigitalClockView: NSView {
     required init?(coder: NSCoder) { fatalError() }
 
     private func build() {
-        wantsLayer = true; layer?.cornerRadius = 0; layer?.backgroundColor = ThemeManager.shared.currentBgColor.cgColor
+        wantsLayer = true; layer?.cornerRadius = kRadius; layer?.backgroundColor = ThemeManager.shared.currentBgColor.cgColor
+        layer?.borderWidth = 1.5; layer?.borderColor = kBorder.cgColor
 
-        timeLabel.font = NSFont.monospacedDigitSystemFont(ofSize: 42, weight: .black); timeLabel.textColor = kText; timeLabel.alignment = .center
+        timeLabel.font = NSFont.monospacedDigitSystemFont(ofSize: 44, weight: .black); timeLabel.textColor = kText; timeLabel.alignment = .center
         timeLabel.isEditable = false; timeLabel.isBordered = false; timeLabel.backgroundColor = .clear; addSubview(timeLabel)
 
-        dateLabel.font = NSFont.systemFont(ofSize: 12, weight: .bold); dateLabel.textColor = kDim; dateLabel.alignment = .center
+        dateLabel.font = modernFont(size: 11, weight: .bold); dateLabel.textColor = kDim; dateLabel.alignment = .center
         dateLabel.isEditable = false; dateLabel.isBordered = false; dateLabel.backgroundColor = .clear; addSubview(dateLabel)
     }
 
     override func layout() {
         super.layout()
         let w = bounds.width
-        timeLabel.frame = NSRect(x: 10, y: 32, width: w - 20, height: 50)
+        timeLabel.frame = NSRect(x: 10, y: 32, width: w - 20, height: 52)
         dateLabel.frame = NSRect(x: 10, y: 12, width: w - 20, height: 20)
     }
 
@@ -896,7 +904,7 @@ class DigitalClockView: NSView {
 
     private func updateTime() {
         let now = Date()
-        let tf = DateFormatter(); tf.dateFormat = "HH:mm" // NO SECONDS!
+        let tf = DateFormatter(); tf.dateFormat = "HH:mm"
         timeLabel.stringValue = tf.string(from: now)
 
         let df = DateFormatter(); df.dateFormat = "EEEE, MMMM d, yyyy"
@@ -925,27 +933,28 @@ class DigitalClockView: NSView {
     }
 }
 
-// MARK: - 5. COLOR PICKER WIDGET (tutucolor - Exact Original Swatches & WihhL Button)
+// MARK: - 5. COLOR PICKER WIDGET (Modern Dark Glass)
 class ColorPickerView: NSView {
     let widgetKey = "color_picker"
     private let swatchesContainer = NSView()
     private let pickerBtn = NSButton()
     private var dragStart: NSPoint = .zero, dragActive = false
-    private let presetHexes = ["#FEF9C3", "#FFE4E6", "#DCFCE7", "#E0F2FE", "#F3E8FF", "#F5EBE0"]
+    private let presetHexes = ["#090D16", "#1E293B", "#0F172A", "#18181B", "#171717", "#0F0F0F"]
 
     override init(frame: NSRect) { super.init(frame: frame); build(); listenForThemeChanges() }
     required init?(coder: NSCoder) { fatalError() }
 
     private func build() {
-        wantsLayer = true; layer?.cornerRadius = 0; layer?.backgroundColor = ThemeManager.shared.currentBgColor.cgColor
+        wantsLayer = true; layer?.cornerRadius = kRadius; layer?.backgroundColor = ThemeManager.shared.currentBgColor.cgColor
+        layer?.borderWidth = 1.5; layer?.borderColor = kBorder.cgColor
 
         swatchesContainer.wantsLayer = true; addSubview(swatchesContainer)
         renderSwatches()
 
-        pickerBtn.title = "WihhL"
-        pickerBtn.font = NSFont.systemFont(ofSize: 11, weight: .bold)
-        pickerBtn.isBordered = false; pickerBtn.wantsLayer = true; pickerBtn.layer?.cornerRadius = 0
-        pickerBtn.layer?.backgroundColor = kText.cgColor; pickerBtn.layer?.borderWidth = 1; pickerBtn.layer?.borderColor = kBorder.cgColor
+        pickerBtn.title = "CUSTOM COLOR"
+        pickerBtn.font = modernFont(size: 10, weight: .bold)
+        pickerBtn.isBordered = false; pickerBtn.wantsLayer = true; pickerBtn.layer?.cornerRadius = 12
+        pickerBtn.layer?.backgroundColor = kBlue.cgColor; pickerBtn.layer?.borderWidth = 1; pickerBtn.layer?.borderColor = kBorder.cgColor
         pickerBtn.contentTintColor = .white
         pickerBtn.target = self; pickerBtn.action = #selector(openSystemColorPicker)
         addSubview(pickerBtn)
@@ -959,9 +968,9 @@ class ColorPickerView: NSView {
         for (i, hex) in presetHexes.enumerated() {
             let x = startX + CGFloat(i) * (itemW + gap)
             let btn = NSButton(frame: NSRect(x: x, y: 0, width: itemW, height: itemH))
-            btn.title = ""; btn.isBordered = false; btn.wantsLayer = true; btn.layer?.cornerRadius = 0
+            btn.title = ""; btn.isBordered = false; btn.wantsLayer = true; btn.layer?.cornerRadius = 14
             if let color = NSColor(hex: hex) { btn.layer?.backgroundColor = color.cgColor }
-            btn.layer?.borderWidth = 1.5; btn.layer?.borderColor = kBorder.cgColor
+            btn.layer?.borderWidth = 1.0; btn.layer?.borderColor = kBorder.cgColor
             btn.tag = i; btn.target = self; btn.action = #selector(swatchTapped(_:))
             swatchesContainer.addSubview(btn)
         }
@@ -971,7 +980,7 @@ class ColorPickerView: NSView {
         super.layout()
         let w = bounds.width, h = bounds.height
         swatchesContainer.frame = NSRect(x: 0, y: h - 42, width: w, height: 30)
-        pickerBtn.frame = NSRect(x: (w - 100)/2, y: 10, width: 100, height: 22)
+        pickerBtn.frame = NSRect(x: (w - 120)/2, y: 10, width: 120, height: 22)
     }
 
     @objc private func swatchTapped(_ sender: NSButton) {
@@ -1012,7 +1021,7 @@ class ColorPickerView: NSView {
     }
 }
 
-// MARK: - 6. CIRCULAR ANALOG CLOCK WIDGET (tutuclockcircle)
+// MARK: - 6. CIRCULAR ANALOG CLOCK WIDGET (Modern Dark Glass)
 class AnalogClockView: NSView {
     let widgetKey = "analog_clock"
     private var timer: Timer?, dragStart: NSPoint = .zero, dragActive = false
@@ -1033,11 +1042,12 @@ class AnalogClockView: NSView {
         guard let ctx = NSGraphicsContext.current?.cgContext else { return }
         let center = CGPoint(x: bounds.midX, y: bounds.midY), radius = bounds.width / 2.0 - 10.0
 
-        ctx.setStrokeColor(kText.cgColor); ctx.setLineWidth(1.5)
+        ctx.setStrokeColor(kBorder.cgColor); ctx.setLineWidth(1.5)
         ctx.addEllipse(in: CGRect(x: center.x - radius, y: center.y - radius, width: radius * 2, height: radius * 2)); ctx.strokePath()
 
         for i in 0..<12 {
             let angle = CGFloat(i) * (CGFloat.pi / 6.0), innerR = radius - 8.0
+            ctx.setStrokeColor(kDim.cgColor)
             ctx.move(to: CGPoint(x: center.x + radius * sin(angle), y: center.y + radius * cos(angle)))
             ctx.addLine(to: CGPoint(x: center.x + innerR * sin(angle), y: center.y + innerR * cos(angle))); ctx.strokePath()
         }
@@ -1050,11 +1060,11 @@ class AnalogClockView: NSView {
         ctx.move(to: center); ctx.addLine(to: CGPoint(x: center.x + hrLen * sin(hrAngle), y: center.y + hrLen * cos(hrAngle))); ctx.strokePath()
 
         let minAngle = min * (CGFloat.pi / 30.0), minLen = radius * 0.7
-        ctx.setLineWidth(2.0); ctx.setStrokeColor(kText.cgColor)
+        ctx.setLineWidth(2.0); ctx.setStrokeColor(kBlue.cgColor)
         ctx.move(to: center); ctx.addLine(to: CGPoint(x: center.x + minLen * sin(minAngle), y: center.y + minLen * cos(minAngle))); ctx.strokePath()
 
         let secAngle = sec * (CGFloat.pi / 30.0), secLen = radius * 0.85
-        ctx.setLineWidth(1.2); ctx.setStrokeColor(NSColor.red.cgColor)
+        ctx.setLineWidth(1.2); ctx.setStrokeColor(kAccent.cgColor)
         ctx.move(to: center); ctx.addLine(to: CGPoint(x: center.x + secLen * sin(secAngle), y: center.y + secLen * cos(secAngle))); ctx.strokePath()
 
         ctx.setFillColor(kText.cgColor); ctx.addEllipse(in: CGRect(x: center.x - 4, y: center.y - 4, width: 8, height: 8)); ctx.fillPath()
@@ -1082,7 +1092,7 @@ class AnalogClockView: NSView {
     }
 }
 
-// MARK: - 7. SPOTIFY LIVE PLAYER WIDGET (tutuspotify)
+// MARK: - 7. SPOTIFY LIVE PLAYER WIDGET (Modern Dark Glass)
 class AudioEqualizerView: NSView {
     var isPlaying: Bool = false { didSet { isPlaying ? startAnimation() : stopAnimation() } }
     private var barHeights: [CGFloat] = [0.3, 0.6, 0.4, 0.8], animTimer: Timer?
@@ -1099,7 +1109,7 @@ class AudioEqualizerView: NSView {
         super.draw(dirtyRect)
         guard let ctx = NSGraphicsContext.current?.cgContext else { return }
         let barCount = 4, gap: CGFloat = 3, barW = (bounds.width - CGFloat(barCount - 1) * gap) / CGFloat(barCount), maxH = bounds.height
-        ctx.setFillColor(kAccent.cgColor)
+        ctx.setFillColor(kBlue.cgColor)
         for i in 0..<barCount {
             let h = max(3.0, maxH * barHeights[i])
             ctx.fill(CGRect(x: CGFloat(i) * (barW + gap), y: (maxH - h) / 2.0, width: barW, height: h))
@@ -1112,14 +1122,13 @@ class ProgressBarView: NSView {
     override func draw(_ dirtyRect: NSRect) {
         super.draw(dirtyRect)
         guard let ctx = NSGraphicsContext.current?.cgContext else { return }
-        ctx.setFillColor(NSColor.black.withAlphaComponent(0.12).cgColor); ctx.fill(bounds)
+        ctx.setFillColor(kSurface.cgColor); ctx.fill(bounds)
         ctx.setStrokeColor(kBorder.cgColor); ctx.setLineWidth(1.0); ctx.stroke(bounds)
         let fillW = max(0, min(bounds.width * progress, bounds.width))
         if fillW > 0 {
-            ctx.setFillColor(kAccent.cgColor); ctx.fill(NSRect(x: 0, y: 0, width: fillW, height: bounds.height))
+            ctx.setFillColor(kBlue.cgColor); ctx.fill(NSRect(x: 0, y: 0, width: fillW, height: bounds.height))
             let r: CGFloat = 4.0, c = CGPoint(x: fillW, y: bounds.midY)
             ctx.setFillColor(kText.cgColor); ctx.addEllipse(in: CGRect(x: c.x - r, y: c.y - r, width: r*2, height: r*2)); ctx.fillPath()
-            ctx.setStrokeColor(NSColor.white.cgColor); ctx.setLineWidth(1.0); ctx.addEllipse(in: CGRect(x: c.x - r, y: c.y - r, width: r*2, height: r*2)); ctx.strokePath()
         }
     }
 }
@@ -1137,28 +1146,29 @@ class SpotifyView: NSView {
     required init?(coder: NSCoder) { fatalError() }
 
     private func build() {
-        wantsLayer = true; layer?.cornerRadius = 0; layer?.backgroundColor = ThemeManager.shared.currentBgColor.cgColor
+        wantsLayer = true; layer?.cornerRadius = kRadius; layer?.backgroundColor = ThemeManager.shared.currentBgColor.cgColor
+        layer?.borderWidth = 1.5; layer?.borderColor = kBorder.cgColor
         addSubview(eqView)
 
-        artImageView.wantsLayer = true; artImageView.layer?.cornerRadius = 0; artImageView.layer?.borderWidth = 1.5; artImageView.layer?.borderColor = kBorder.cgColor
+        artImageView.wantsLayer = true; artImageView.layer?.cornerRadius = 18; artImageView.layer?.borderWidth = 1.0; artImageView.layer?.borderColor = kBorder.cgColor
         artImageView.imageScaling = .scaleAxesIndependently; artImageView.imageAlignment = .alignCenter; addSubview(artImageView)
 
-        trackLabel.font = NSFont.systemFont(ofSize: 13, weight: .black); trackLabel.textColor = kText; trackLabel.isEditable = false; trackLabel.isBordered = false; trackLabel.backgroundColor = .clear; trackLabel.lineBreakMode = .byTruncatingTail; addSubview(trackLabel)
-        artistLabel.font = NSFont.systemFont(ofSize: 11, weight: .bold); artistLabel.textColor = kDim; artistLabel.isEditable = false; artistLabel.isBordered = false; artistLabel.backgroundColor = .clear; artistLabel.lineBreakMode = .byTruncatingTail; addSubview(artistLabel)
+        trackLabel.font = modernFont(size: 13, weight: .black); trackLabel.textColor = kText; trackLabel.isEditable = false; trackLabel.isBordered = false; trackLabel.backgroundColor = .clear; trackLabel.lineBreakMode = .byTruncatingTail; addSubview(trackLabel)
+        artistLabel.font = modernFont(size: 11, weight: .bold); artistLabel.textColor = kDim; artistLabel.isEditable = false; artistLabel.isBordered = false; artistLabel.backgroundColor = .clear; artistLabel.lineBreakMode = .byTruncatingTail; addSubview(artistLabel)
 
         progressBar.wantsLayer = true; addSubview(progressBar)
-        currTimeLabel.font = NSFont.monospacedDigitSystemFont(ofSize: 10, weight: .bold); currTimeLabel.textColor = kText; currTimeLabel.isEditable = false; currTimeLabel.isBordered = false; currTimeLabel.backgroundColor = .clear; addSubview(currTimeLabel)
-        durTimeLabel.font = NSFont.monospacedDigitSystemFont(ofSize: 10, weight: .bold); durTimeLabel.textColor = kDim; durTimeLabel.isEditable = false; durTimeLabel.isBordered = false; durTimeLabel.backgroundColor = .clear; durTimeLabel.alignment = .right; addSubview(durTimeLabel)
+        currTimeLabel.font = modernFont(size: 10, weight: .bold); currTimeLabel.textColor = kText; currTimeLabel.isEditable = false; currTimeLabel.isBordered = false; currTimeLabel.backgroundColor = .clear; addSubview(currTimeLabel)
+        durTimeLabel.font = modernFont(size: 10, weight: .bold); durTimeLabel.textColor = kDim; durTimeLabel.isEditable = false; durTimeLabel.isBordered = false; durTimeLabel.backgroundColor = .clear; durTimeLabel.alignment = .right; addSubview(durTimeLabel)
 
         setupBtn(prevBtn, title: "⏮", action: #selector(onPrev))
         setupBtn(playBtn, title: "▶", action: #selector(onPlayPause))
         setupBtn(nextBtn, title: "⏭", action: #selector(onNext))
 
-        statusLabel.stringValue = "Spotify Offline"; statusLabel.font = NSFont.systemFont(ofSize: 12, weight: .bold); statusLabel.textColor = kDim; statusLabel.alignment = .center; statusLabel.isEditable = false; statusLabel.isBordered = false; statusLabel.backgroundColor = .clear; statusLabel.isHidden = true; addSubview(statusLabel)
+        statusLabel.stringValue = "Spotify Offline"; statusLabel.font = modernFont(size: 12, weight: .bold); statusLabel.textColor = kDim; statusLabel.alignment = .center; statusLabel.isEditable = false; statusLabel.isBordered = false; statusLabel.backgroundColor = .clear; statusLabel.isHidden = true; addSubview(statusLabel)
     }
 
     private func setupBtn(_ btn: NSButton, title: String, action: Selector) {
-        btn.title = title; btn.font = NSFont.systemFont(ofSize: 12, weight: .bold); btn.isBordered = false; btn.wantsLayer = true; btn.layer?.cornerRadius = 0; btn.layer?.backgroundColor = kText.cgColor; btn.layer?.borderWidth = 1; btn.layer?.borderColor = kBorder.cgColor; btn.contentTintColor = .white; btn.target = self; btn.action = action; addSubview(btn)
+        btn.title = title; btn.font = modernFont(size: 12, weight: .bold); btn.isBordered = false; btn.wantsLayer = true; btn.layer?.cornerRadius = 10; btn.layer?.backgroundColor = kSurface.cgColor; btn.layer?.borderWidth = 1.0; btn.layer?.borderColor = kBorder.cgColor; btn.contentTintColor = kText; btn.target = self; btn.action = action; addSubview(btn)
     }
 
     override func layout() {
@@ -1249,7 +1259,7 @@ class SpotifyView: NSView {
     }
 }
 
-// MARK: - 8. ROBLOX DANCE TRANSPARENT GIF WIDGET (tutugif)
+// MARK: - 8. ROBLOX DANCE TRANSPARENT GIF WIDGET (Modern Dark Glass)
 class GifView: NSView {
     let widgetKey = "gif"
     private let imageView = NSImageView()
@@ -1275,7 +1285,7 @@ class GifView: NSView {
            let firstGif = files.filter({ $0.pathExtension.lowercased() == "gif" }).first,
            let img = NSImage(contentsOf: firstGif) {
             imageView.image = img
-            imageView.animates = false // Starts paused!
+            imageView.animates = false
         }
     }
 
@@ -1288,8 +1298,7 @@ class GifView: NSView {
     override func mouseDragged(with event: NSEvent) {
         guard let w = window else { return }
         let c = event.locationInWindow
-        let dx = c.x - dragStart.x
-        let dy = c.y - dragStart.y
+        let dx = c.x - dragStart.x, dy = c.y - dragStart.y
         if abs(dx) > 2 || abs(dy) > 2 {
             dragMoved = true
             w.setFrameOrigin(NSPoint(x: w.frame.origin.x + dx, y: w.frame.origin.y + dy))
@@ -1298,7 +1307,6 @@ class GifView: NSView {
 
     override func mouseUp(with event: NSEvent) {
         if !dragMoved {
-            // Clicked! Toggle play / pause!
             imageView.animates.toggle()
         } else {
             if let w = window { PositionManager.shared.savePosition(key: widgetKey, origin: w.frame.origin) }
@@ -1306,7 +1314,7 @@ class GifView: NSView {
     }
 }
 
-// MARK: - 9. GITHUB WIDGET (tutugithub)
+// MARK: - 9. GITHUB WIDGET (Modern Dark Glass)
 class GithubView: NSView {
     let widgetKey = "github"
     private var username: String = {
@@ -1334,19 +1342,20 @@ class GithubView: NSView {
     required init?(coder: NSCoder) { fatalError() }
 
     private func build() {
-        wantsLayer = true; layer?.cornerRadius = 0; layer?.backgroundColor = ThemeManager.shared.currentBgColor.cgColor
+        wantsLayer = true; layer?.cornerRadius = kRadius; layer?.backgroundColor = ThemeManager.shared.currentBgColor.cgColor
+        layer?.borderWidth = 1.5; layer?.borderColor = kBorder.cgColor
 
         titleLabel.stringValue = "GITHUB"
-        titleLabel.font = NSFont.systemFont(ofSize: 13, weight: .black); titleLabel.textColor = kText
+        titleLabel.font = modernFont(size: 13, weight: .black); titleLabel.textColor = kText
         titleLabel.isEditable = false; titleLabel.isBordered = false; titleLabel.backgroundColor = .clear
         addSubview(titleLabel)
 
         userBadge.stringValue = "@\(username)"
-        userBadge.font = NSFont.systemFont(ofSize: 10, weight: .bold); userBadge.textColor = kDim; userBadge.alignment = .right
+        userBadge.font = modernFont(size: 10, weight: .bold); userBadge.textColor = kDim; userBadge.alignment = .right
         userBadge.isEditable = false; userBadge.isBordered = false; userBadge.backgroundColor = .clear
         addSubview(userBadge)
 
-        avatarImageView.wantsLayer = true; avatarImageView.layer?.cornerRadius = 0; avatarImageView.layer?.borderWidth = 1.5; avatarImageView.layer?.borderColor = kBorder.cgColor
+        avatarImageView.wantsLayer = true; avatarImageView.layer?.cornerRadius = 41; avatarImageView.layer?.borderWidth = 1.5; avatarImageView.layer?.borderColor = kBlue.cgColor
         avatarImageView.imageScaling = .scaleAxesIndependently; avatarImageView.imageAlignment = .alignCenter
         addSubview(avatarImageView)
 
@@ -1355,15 +1364,15 @@ class GithubView: NSView {
     }
 
     private func setupStatCard(_ card: NSView, numLabel: NSTextField, titleLabel: NSTextField, title: String) {
-        card.wantsLayer = true; card.layer?.cornerRadius = 0; card.layer?.backgroundColor = kSurface.cgColor
-        card.layer?.borderWidth = 1.5; card.layer?.borderColor = kBorder.cgColor; addSubview(card)
+        card.wantsLayer = true; card.layer?.cornerRadius = 16; card.layer?.backgroundColor = kSurface.cgColor
+        card.layer?.borderWidth = 1.0; card.layer?.borderColor = kBorder.cgColor; addSubview(card)
 
         numLabel.stringValue = "-"
-        numLabel.font = NSFont.monospacedDigitSystemFont(ofSize: 18, weight: .black); numLabel.textColor = kText; numLabel.alignment = .center
+        numLabel.font = modernFont(size: 18, weight: .black); numLabel.textColor = kText; numLabel.alignment = .center
         numLabel.isEditable = false; numLabel.isBordered = false; numLabel.backgroundColor = .clear; card.addSubview(numLabel)
 
         titleLabel.stringValue = title
-        titleLabel.font = NSFont.systemFont(ofSize: 10, weight: .bold); titleLabel.textColor = kDim; titleLabel.alignment = .center
+        titleLabel.font = modernFont(size: 10, weight: .bold); titleLabel.textColor = kDim; titleLabel.alignment = .center
         titleLabel.isEditable = false; titleLabel.isBordered = false; titleLabel.backgroundColor = .clear; card.addSubview(titleLabel)
     }
 
@@ -1503,7 +1512,7 @@ class GithubView: NSView {
     }
 }
 
-// MARK: - 10. ONLINE GMAIL / MAIL UNREAD WIDGET (tutumail)
+// MARK: - 10. ONLINE GMAIL / MAIL UNREAD WIDGET (Modern Dark Glass)
 struct GmailEntry {
     var title: String = ""
     var summary: String = ""
@@ -1584,31 +1593,32 @@ class MailView: NSView {
     required init?(coder: NSCoder) { fatalError() }
 
     private func build() {
-        wantsLayer = true; layer?.cornerRadius = 0; layer?.backgroundColor = ThemeManager.shared.currentBgColor.cgColor
+        wantsLayer = true; layer?.cornerRadius = kRadius; layer?.backgroundColor = ThemeManager.shared.currentBgColor.cgColor
+        layer?.borderWidth = 1.5; layer?.borderColor = kBorder.cgColor
 
         titleLabel.stringValue = "GMAIL"
-        titleLabel.font = NSFont.systemFont(ofSize: 13, weight: .black); titleLabel.textColor = kText
+        titleLabel.font = modernFont(size: 13, weight: .black); titleLabel.textColor = kText
         titleLabel.isEditable = false; titleLabel.isBordered = false; titleLabel.backgroundColor = .clear
         addSubview(titleLabel)
 
         badgeLabel.stringValue = "0 UNREAD"
-        badgeLabel.font = NSFont.systemFont(ofSize: 10, weight: .bold); badgeLabel.textColor = kDim; badgeLabel.alignment = .right
+        badgeLabel.font = modernFont(size: 10, weight: .bold); badgeLabel.textColor = kDim; badgeLabel.alignment = .right
         badgeLabel.isEditable = false; badgeLabel.isBordered = false; badgeLabel.backgroundColor = .clear
         addSubview(badgeLabel)
 
-        cardView.wantsLayer = true; cardView.layer?.cornerRadius = 0; cardView.layer?.backgroundColor = kSurface.cgColor
-        cardView.layer?.borderWidth = 1.5; cardView.layer?.borderColor = kBorder.cgColor; addSubview(cardView)
+        cardView.wantsLayer = true; cardView.layer?.cornerRadius = 16; cardView.layer?.backgroundColor = kSurface.cgColor
+        cardView.layer?.borderWidth = 1.0; cardView.layer?.borderColor = kBorder.cgColor; addSubview(cardView)
 
         countNumLabel.stringValue = "0"
-        countNumLabel.font = NSFont.monospacedDigitSystemFont(ofSize: 22, weight: .black); countNumLabel.textColor = kText; countNumLabel.alignment = .center
+        countNumLabel.font = modernFont(size: 22, weight: .black); countNumLabel.textColor = kBlue; countNumLabel.alignment = .center
         countNumLabel.isEditable = false; countNumLabel.isBordered = false; countNumLabel.backgroundColor = .clear; cardView.addSubview(countNumLabel)
 
         senderLabel.stringValue = "Double-click to set Gmail"
-        senderLabel.font = NSFont.systemFont(ofSize: 11, weight: .bold); senderLabel.textColor = kText; senderLabel.lineBreakMode = .byTruncatingTail
+        senderLabel.font = modernFont(size: 11, weight: .bold); senderLabel.textColor = kText; senderLabel.lineBreakMode = .byTruncatingTail
         senderLabel.isEditable = false; senderLabel.isBordered = false; senderLabel.backgroundColor = .clear; cardView.addSubview(senderLabel)
 
         subjectLabel.stringValue = "Or open Apple Mail"
-        subjectLabel.font = NSFont.systemFont(ofSize: 10, weight: .medium); subjectLabel.textColor = kDim; subjectLabel.lineBreakMode = .byTruncatingTail
+        subjectLabel.font = modernFont(size: 10, weight: .medium); subjectLabel.textColor = kDim; subjectLabel.lineBreakMode = .byTruncatingTail
         subjectLabel.isEditable = false; subjectLabel.isBordered = false; subjectLabel.backgroundColor = .clear; cardView.addSubview(subjectLabel)
     }
 
@@ -1712,46 +1722,9 @@ class MailView: NSView {
         dragActive = false
         if let w = window { PositionManager.shared.savePosition(key: widgetKey, origin: w.frame.origin) }
     }
-
-    private func promptGmailCredentials() {
-        let alert = NSAlert()
-        alert.messageText = "Configure Online Gmail Sync"
-        alert.informativeText = "Enter your Gmail address and 16-character App Password (from myaccount.google.com/apppasswords):"
-        alert.addButton(withTitle: "Save & Sync")
-        alert.addButton(withTitle: "Cancel")
-
-        let container = NSView(frame: NSRect(x: 0, y: 0, width: 280, height: 60))
-        let emailField = NSTextField(frame: NSRect(x: 0, y: 32, width: 280, height: 24))
-        emailField.placeholderString = "user@example.com"
-        if let creds = getGmailCredentials() { emailField.stringValue = creds.email }
-
-        let passField = NSSecureTextField(frame: NSRect(x: 0, y: 4, width: 280, height: 24))
-        passField.placeholderString = "16-character App Password"
-        if let creds = getGmailCredentials() { passField.stringValue = creds.pass }
-
-        container.addSubview(emailField)
-        container.addSubview(passField)
-        alert.accessoryView = container
-
-        if alert.runModal() == .alertFirstButtonReturn {
-            let email = emailField.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
-            let pass = passField.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
-            guard !email.isEmpty, !pass.isEmpty else { return }
-
-            let dir = FileManager.default.homeDirectoryForCurrentUser
-                .appendingPathComponent("Library/Application Support/CustomER")
-            try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
-            let file = dir.appendingPathComponent("gmail.json")
-            let dict = ["email": email, "app_password": pass]
-            if let d = try? JSONSerialization.data(withJSONObject: dict, options: .prettyPrinted) {
-                try? d.write(to: file)
-            }
-            updateMail()
-        }
-    }
 }
 
-// MARK: - 11. PHOTO SLOTS WIDGET (tutuphotos)
+// MARK: - 11. PHOTO SLOTS WIDGET (Modern Dark Glass)
 struct PhotoSlot { let id: Int; let folderName: String; let rect: NSRect }
 
 class PhotosView: NSView {
@@ -1768,8 +1741,9 @@ class PhotosView: NSView {
     required init?(coder: NSCoder) { fatalError() }
 
     private func build() {
-        wantsLayer = true; layer?.cornerRadius = 0; layer?.backgroundColor = NSColor.clear.cgColor
-        imageView.wantsLayer = true; imageView.layer?.cornerRadius = 0; imageView.imageScaling = .scaleAxesIndependently; imageView.imageAlignment = .alignCenter
+        wantsLayer = true; layer?.cornerRadius = kRadius; layer?.backgroundColor = NSColor.clear.cgColor
+        imageView.wantsLayer = true; imageView.layer?.cornerRadius = kRadius; imageView.layer?.borderWidth = 1.5; imageView.layer?.borderColor = kBorder.cgColor
+        imageView.imageScaling = .scaleAxesIndependently; imageView.imageAlignment = .alignCenter
         addSubview(imageView)
     }
 
@@ -1802,10 +1776,9 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     var windows: [NSWindow] = []
 
     func applicationDidFinishLaunching(_ notification: Notification) {
-        // Sync Desktop Folder Icons with Widget Theme
         FolderIconManager.updateDesktopFolderIcons(bgColor: ThemeManager.shared.currentBgColor)
 
-        // 1. Reminders (Exact Original tututodo)
+        // 1. Reminders
         let defaultTodoRect = NSRect(x: 24, y: 600, width: 280, height: 440)
         let todoOrigin = PositionManager.shared.getPosition(key: "reminders", defaultOrigin: defaultTodoRect.origin)
         addWindow(rect: NSRect(origin: todoOrigin, size: defaultTodoRect.size), view: TodoView(frame: NSRect(origin: todoOrigin, size: defaultTodoRect.size)))
@@ -1815,17 +1788,17 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         let calOrigin = PositionManager.shared.getPosition(key: "calendar", defaultOrigin: defaultCalRect.origin)
         addWindow(rect: NSRect(origin: calOrigin, size: defaultCalRect.size), view: CalendarView(frame: NSRect(origin: calOrigin, size: defaultCalRect.size)))
 
-        // 3. Battery (NO Emojis!)
+        // 3. Battery
         let defaultBatRect = NSRect(x: 24, y: 50, width: 280, height: 280)
         let batOrigin = PositionManager.shared.getPosition(key: "battery", defaultOrigin: defaultBatRect.origin)
         addWindow(rect: NSRect(origin: batOrigin, size: defaultBatRect.size), view: BatteryView(frame: NSRect(origin: batOrigin, size: defaultBatRect.size)))
 
-        // 4. Digital Clock (NO SECONDS)
+        // 4. Digital Clock
         let defaultClockRect = NSRect(x: 320, y: 930, width: 280, height: 110)
         let clockOrigin = PositionManager.shared.getPosition(key: "digital_clock", defaultOrigin: defaultClockRect.origin)
         addWindow(rect: NSRect(origin: clockOrigin, size: defaultClockRect.size), view: DigitalClockView(frame: NSRect(origin: clockOrigin, size: defaultClockRect.size)))
 
-        // 5. Color Picker (Exact Original Swatches & WihhL Button)
+        // 5. Color Picker
         let defaultColorRect = NSRect(x: 320, y: 830, width: 280, height: 80)
         let colorOrigin = PositionManager.shared.getPosition(key: "color_picker", defaultOrigin: defaultColorRect.origin)
         addWindow(rect: NSRect(origin: colorOrigin, size: defaultColorRect.size), view: ColorPickerView(frame: NSRect(origin: colorOrigin, size: defaultColorRect.size)))
