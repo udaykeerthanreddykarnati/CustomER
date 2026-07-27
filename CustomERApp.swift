@@ -1012,6 +1012,87 @@ class ColorPickerView: NSView {
     }
 }
 
+// MARK: - 5.5 THEME SELECTOR WIDGET (tututhemeselector)
+class ThemeSelectorView: NSView {
+    let widgetKey = "theme_selector"
+    
+    private let titleLabel  = NSTextField()
+    private let minimalBtn  = NSButton()
+    private let glassBtn    = NSButton()
+    private let childishBtn = NSButton()
+    private var dragStart: NSPoint = .zero, dragActive = false
+
+    override init(frame: NSRect) { super.init(frame: frame); build(); listenForThemeChanges() }
+    required init?(coder: NSCoder) { fatalError() }
+
+    private func build() {
+        wantsLayer = true; layer?.cornerRadius = 0; layer?.backgroundColor = ThemeManager.shared.currentBgColor.cgColor
+
+        titleLabel.stringValue = "THEME SELECTOR"
+        titleLabel.font = NSFont.systemFont(ofSize: 12, weight: .black); titleLabel.textColor = kText; titleLabel.alignment = .center
+        titleLabel.isEditable = false; titleLabel.isBordered = false; titleLabel.backgroundColor = .clear
+        addSubview(titleLabel)
+
+        setupThemeBtn(minimalBtn, title: "MINIMAL", hex: "#FEF9C3", action: #selector(onMinimalTapped))
+        setupThemeBtn(glassBtn, title: "GLASS", hex: "#090D16", action: #selector(onGlassTapped))
+        setupThemeBtn(childishBtn, title: "CHILDISH", hex: "#FFE3F1", action: #selector(onChildishTapped))
+    }
+
+    private func setupThemeBtn(_ btn: NSButton, title: String, hex: String, action: Selector) {
+        btn.title = title
+        btn.font = NSFont.systemFont(ofSize: 11, weight: .bold)
+        btn.isBordered = false; btn.wantsLayer = true; btn.layer?.cornerRadius = 0
+        if let col = NSColor(hex: hex) { btn.layer?.backgroundColor = col.cgColor }
+        btn.layer?.borderWidth = 1.5; btn.layer?.borderColor = kBorder.cgColor
+        btn.contentTintColor = (hex == "#090D16") ? .white : NSColor(red: 128/255.0, green: 0/255.0, blue: 32/255.0, alpha: 1.0)
+        btn.target = self; btn.action = action; addSubview(btn)
+    }
+
+    override func layout() {
+        super.layout()
+        let w = bounds.width, h = bounds.height
+        titleLabel.frame = NSRect(x: 10, y: h - 28, width: w - 20, height: 18)
+
+        let btnW: CGFloat = (w - 32) / 3.0, btnH: CGFloat = 28
+        minimalBtn.frame  = NSRect(x: 10, y: 10, width: btnW, height: btnH)
+        glassBtn.frame    = NSRect(x: 16 + btnW, y: 10, width: btnW, height: btnH)
+        childishBtn.frame = NSRect(x: 22 + btnW * 2, y: 10, width: btnW, height: btnH)
+    }
+
+    @objc private func onMinimalTapped() {
+        if let col = NSColor(hex: "#FEF9C3") { ThemeManager.shared.currentBgColor = col }
+    }
+
+    @objc private func onGlassTapped() {
+        if let col = NSColor(hex: "#090D16") { ThemeManager.shared.currentBgColor = col }
+    }
+
+    @objc private func onChildishTapped() {
+        if let col = NSColor(hex: "#FFE3F1") { ThemeManager.shared.currentBgColor = col }
+    }
+
+    private func listenForThemeChanges() { DistributedNotificationCenter.default().addObserver(self, selector: #selector(onThemeChanged), name: ThemeManager.notifName, object: nil) }
+    @objc private func onThemeChanged() {
+        DispatchQueue.main.async {
+            CATransaction.begin()
+            CATransaction.setDisableActions(true)
+            self.layer?.backgroundColor = ThemeManager.shared.currentBgColor.cgColor
+            CATransaction.commit()
+        }
+    }
+
+    override func mouseDown(with event: NSEvent) { dragStart = event.locationInWindow; dragActive = true; window?.makeKey() }
+    override func mouseDragged(with event: NSEvent) {
+        guard dragActive, let w = window else { return }
+        let c = event.locationInWindow
+        w.setFrameOrigin(NSPoint(x: w.frame.origin.x + c.x - dragStart.x, y: w.frame.origin.y + c.y - dragStart.y))
+    }
+    override func mouseUp(with event: NSEvent) {
+        dragActive = false
+        if let w = window { PositionManager.shared.savePosition(key: widgetKey, origin: w.frame.origin) }
+    }
+}
+
 // MARK: - 6. CIRCULAR ANALOG CLOCK WIDGET (tutuclockcircle)
 class AnalogClockView: NSView {
     let widgetKey = "analog_clock"
@@ -1829,6 +1910,11 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         let defaultColorRect = NSRect(x: 320, y: 830, width: 280, height: 80)
         let colorOrigin = PositionManager.shared.getPosition(key: "color_picker", defaultOrigin: defaultColorRect.origin)
         addWindow(rect: NSRect(origin: colorOrigin, size: defaultColorRect.size), view: ColorPickerView(frame: NSRect(origin: colorOrigin, size: defaultColorRect.size)))
+
+        // 5.5 Theme Selector Widget
+        let defaultThemeSelRect = NSRect(x: 320, y: 740, width: 280, height: 75)
+        let themeSelOrigin = PositionManager.shared.getPosition(key: "theme_selector", defaultOrigin: defaultThemeSelRect.origin)
+        addWindow(rect: NSRect(origin: themeSelOrigin, size: defaultThemeSelRect.size), view: ThemeSelectorView(frame: NSRect(origin: themeSelOrigin, size: defaultThemeSelRect.size)))
 
         // 6. Circular Analog Clock
         let defaultAnalogRect = NSRect(x: 613, y: 827, width: 220, height: 220)
