@@ -3,114 +3,6 @@ import Foundation
 import IOKit.pwr_mgt
 import IOKit.ps
 
-// MARK: - Global Theme Presets (Dynamic Colors, Fonts & Shapes)
-enum ThemePreset: String {
-    case minimal
-    case glass
-    case childish
-
-    var name: String { rawValue.uppercased() }
-
-    var bgColor: NSColor {
-        switch self {
-        case .minimal:  return NSColor(hex: "#FEF9C3")! // Pastel Butter (Original Default)
-        case .glass:    return NSColor(hex: "#090D16")! // Deep Cyber Midnight
-        case .childish: return NSColor(hex: "#FFE3F1")! // Cotton Candy Pink
-        }
-    }
-
-    var surfaceColor: NSColor {
-        switch self {
-        case .minimal:  return NSColor(hex: "#FEFCE8")! // Soft Cream
-        case .glass:    return NSColor(hex: "#151D2A")! // Frosted Dark Glass Card Surface
-        case .childish: return NSColor(hex: "#FFF6FA")! // Marshmallow Cream
-        }
-    }
-
-    var textColor: NSColor {
-        switch self {
-        case .minimal:  return NSColor(hex: "#800020")! // Maroon / Rich Burgundy
-        case .glass:    return NSColor(hex: "#F1F5F9")! // Crystal White
-        case .childish: return NSColor(hex: "#FF4FA0")! // Bubblegum Pop Pink
-        }
-    }
-
-    var accentColor: NSColor {
-        switch self {
-        case .minimal:  return NSColor(hex: "#800020")! // Rich Burgundy
-        case .glass:    return NSColor(hex: "#6366F1")! // Electric Indigo
-        case .childish: return NSColor(hex: "#FF4FA0")! // Bubblegum Pop Pink
-        }
-    }
-
-    var addBgColor: NSColor {
-        switch self {
-        case .minimal:  return NSColor(hex: "#800020")! // Rich Burgundy
-        case .glass:    return NSColor(hex: "#10B981")! // Emerald Cyber Green
-        case .childish: return NSColor(hex: "#FF4FA0")! // Bubblegum Pop Pink
-        }
-    }
-
-    var borderColor: NSColor {
-        switch self {
-        case .minimal:  return NSColor.black
-        case .glass:    return NSColor(hex: "#263346")! // Slate Glass Border
-        case .childish: return NSColor.black            // Thick Black Cartoon Border
-        }
-    }
-
-    var borderWidth: CGFloat {
-        switch self {
-        case .minimal:  return 1.0
-        case .glass:    return 1.0
-        case .childish: return 2.0
-        }
-    }
-
-    var dimColor: NSColor {
-        switch self {
-        case .minimal:  return NSColor(hex: "#595940")! // Muted Olive
-        case .glass:    return NSColor(hex: "#64748B")! // Steel Slate
-        case .childish: return NSColor(hex: "#8C6B9E")! // Dusty Lavender
-        }
-    }
-
-    var cornerRadius: CGFloat {
-        return 0.0
-    }
-
-    var fontDesign: NSFontDescriptor.SystemDesign {
-        switch self {
-        case .minimal:  return .default      // Minimal: Standard Clean Sans-Serif Font
-        case .glass:    return .monospaced   // Glass: Modern Monospaced Tech Font
-        case .childish: return .rounded      // Childish: Bubbly Playful Rounded Font
-        }
-    }
-
-    func font(size: CGFloat, weight: NSFont.Weight = .regular) -> NSFont {
-        let base = NSFont.systemFont(ofSize: size, weight: weight)
-        if let descriptor = base.fontDescriptor.withDesign(fontDesign) {
-            return NSFont(descriptor: descriptor, size: size) ?? base
-        }
-        return base
-    }
-}
-
-var kBg: NSColor          { ThemeManager.shared.currentBgColor }
-var kSurface: NSColor     { ThemeManager.shared.currentPreset.surfaceColor }
-var kText: NSColor        { ThemeManager.shared.currentTextColor }
-var kBlue: NSColor        { ThemeManager.shared.currentPreset.accentColor }
-var kAccent: NSColor      { ThemeManager.shared.currentPreset.accentColor }
-var kAddBg: NSColor       { ThemeManager.shared.currentPreset.addBgColor }
-var kDim: NSColor         { ThemeManager.shared.currentPreset.dimColor }
-var kBorder: NSColor      { ThemeManager.shared.currentPreset.borderColor }
-var kRadius: CGFloat      { ThemeManager.shared.currentPreset.cornerRadius }
-var kBorderWidth: CGFloat { ThemeManager.shared.currentPreset.borderWidth }
-
-func dynamicFont(size: CGFloat, weight: NSFont.Weight = .regular) -> NSFont {
-    return ThemeManager.shared.currentPreset.font(size: size, weight: weight)
-}
-
 extension NSColor {
     convenience init?(hex: String) {
         var str = hex.trimmingCharacters(in: .whitespacesAndNewlines).uppercased()
@@ -123,7 +15,7 @@ extension NSColor {
     }
 
     func toHex() -> String {
-        guard let rgb = usingColorSpace(.sRGB) else { return "#FEF9C3" }
+        guard let rgb = usingColorSpace(.sRGB) else { return "#FFE3F1" }
         let r = Int(rgb.redComponent * 255)
         let g = Int(rgb.greenComponent * 255)
         let b = Int(rgb.blueComponent * 255)
@@ -131,25 +23,44 @@ extension NSColor {
     }
 }
 
+// MARK: - Childish Bubbly Theme Design Tokens
+var kBg      = NSColor(hex: "#FFE3F1")! // Cotton Candy Pink (#FFE3F1)
+let kText    = NSColor(hex: "#FF4FA0")! // Bubblegum Pop Pink (#FF4FA0)
+let kBlue    = NSColor(hex: "#FF4FA0")! // Bubblegum Pop (#FF4FA0)
+let kAccent  = NSColor(hex: "#FF4FA0")! // Bubblegum Pop (#FF4FA0)
+let kAddBg   = NSColor(hex: "#FF4FA0")! // Bubblegum Pop (#FF4FA0)
+let kDim     = NSColor(hex: "#8C6B9E")! // Dusty Lavender (#8C6B9E)
+let kSurface = NSColor(hex: "#FFF6FA")! // Marshmallow Cream (#FFF6FA)
+let kBorder  = NSColor.black            // Solid Black Cartoon Border
+let kRadius: CGFloat = 16.0             // Bubbly 16px Rounded Curves
+let kBorderWidth: CGFloat = 2.0         // Thick 2.0px Cartoon Outline
+
+func dynamicFont(size: CGFloat, weight: NSFont.Weight = .regular) -> NSFont {
+    let base = NSFont.systemFont(ofSize: size, weight: weight)
+    if let descriptor = base.fontDescriptor.withDesign(.rounded) {
+        return NSFont(descriptor: descriptor, size: size) ?? base
+    }
+    return base
+}
+
 extension NSView {
-    func updateThemeRecursively(preset: ThemePreset) {
-        let activeText = ThemeManager.shared.currentTextColor
+    func updateThemeRecursively() {
         if let tf = self as? NSTextField {
-            tf.textColor = (tf.tag == 99) ? preset.dimColor : activeText
+            tf.textColor = (tf.tag == 99) ? kDim : kText
             if let currentFont = tf.font {
                 let name = currentFont.fontName.lowercased()
                 let isBold = currentFont.fontDescriptor.symbolicTraits.contains(.bold) || name.contains("bold") || name.contains("heavy") || name.contains("black")
                 let weight: NSFont.Weight = isBold ? .bold : .regular
-                tf.font = preset.font(size: currentFont.pointSize, weight: weight)
+                tf.font = dynamicFont(size: currentFont.pointSize, weight: weight)
             }
         } else if let btn = self as? NSButton {
-            btn.contentTintColor = activeText
+            btn.contentTintColor = kText
             if let currentFont = btn.font {
-                btn.font = preset.font(size: currentFont.pointSize, weight: .bold)
+                btn.font = dynamicFont(size: currentFont.pointSize, weight: .bold)
             }
         }
         for sub in subviews {
-            sub.updateThemeRecursively(preset: preset)
+            sub.updateThemeRecursively()
         }
     }
 }
@@ -172,10 +83,7 @@ extension NSImage {
 class ThemeManager {
     static let shared = ThemeManager()
     static let notifName = NSNotification.Name("com.user.CustomER.themeChanged")
-
-    var currentPreset: ThemePreset { get { .minimal } set {} }
-    var currentBgColor: NSColor { get { NSColor(hex: "#FEF9C3")! } set {} }
-    var currentTextColor: NSColor { get { NSColor(hex: "#800020")! } set {} }
+    var currentBgColor: NSColor = kBg
 }
 
 class FolderIconManager {
@@ -184,7 +92,7 @@ class FolderIconManager {
             let desktop = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Desktop")
             guard let files = try? FileManager.default.contentsOfDirectory(at: desktop, includingPropertiesForKeys: [.isDirectoryKey], options: [.skipsHiddenFiles]) else { return }
             
-            let accent = ThemeManager.shared.currentPreset.accentColor
+            let accent = kAccent
             
             for url in files {
                 var isDir: ObjCBool = false
@@ -294,20 +202,11 @@ class MasterWidgetWindow: NSWindow {
 
 // MARK: - Helper AppleScript & Shell Runner
 func runScript(_ code: String) -> String {
-    let proc = Process()
-    let pipe = Pipe()
-    proc.executableURL = URL(fileURLWithPath: "/usr/bin/osascript")
-    proc.arguments = ["-e", code]
-    proc.standardOutput = pipe
-    proc.standardError = Pipe()
-    do {
-        try proc.run()
-        proc.waitUntilExit()
-        let data = pipe.fileHandleForReading.readDataToEndOfFile()
-        return String(data: data, encoding: .utf8)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-    } catch {
-        return ""
+    var err: NSDictionary?
+    if let sc = NSAppleScript(source: code) {
+        return sc.executeAndReturnError(&err).stringValue ?? ""
     }
+    return ""
 }
 
 func shellRun(_ command: String) -> String {
@@ -485,7 +384,7 @@ class AddPanel: NSView {
         b.title = title; b.isBordered = false; b.wantsLayer = true; b.layer?.cornerRadius = kRadius / 2
         b.layer?.borderWidth = kBorderWidth; b.layer?.borderColor = kBorder.cgColor; b.font = dynamicFont(size: 12, weight: .bold)
         b.layer?.backgroundColor = primary ? kAddBg.cgColor : kSurface.cgColor
-        b.contentTintColor = primary ? (ThemeManager.shared.currentPreset == .glass || ThemeManager.shared.currentPreset == .childish ? .white : kSurface) : kText
+        b.contentTintColor = primary ? .white : kText
     }
 
     override func layout() {
@@ -519,7 +418,7 @@ class TodoView: NSView {
     private var filterIdx = 0
     private var panelShown = false
 
-    private var dragStart: NSPoint = .zero, initialWinOrigin: NSPoint = .zero
+    private var dragStart: NSPoint = .zero
     private var dragActive = false
 
     private let scroll       = NSScrollView()
@@ -536,7 +435,7 @@ class TodoView: NSView {
     required init?(coder: NSCoder) { fatalError() }
 
     private func build() {
-        wantsLayer = true; layer?.cornerRadius = kRadius; layer?.borderWidth = 0; layer?.borderColor = NSColor.clear.cgColor
+        wantsLayer = true; layer?.cornerRadius = kRadius; layer?.borderWidth = kBorderWidth; layer?.borderColor = kBorder.cgColor
         layer?.backgroundColor = ThemeManager.shared.currentBgColor.cgColor
 
         header.stringValue = "tututodo"
@@ -557,7 +456,7 @@ class TodoView: NSView {
         addBtn.title = "+ Add"; addBtn.font = dynamicFont(size: 12, weight: .bold); addBtn.isBordered = false
         addBtn.wantsLayer = true; addBtn.layer?.cornerRadius = kRadius / 2; addBtn.layer?.borderWidth = kBorderWidth; addBtn.layer?.borderColor = kBorder.cgColor
         addBtn.layer?.backgroundColor = kAddBg.cgColor
-        addBtn.contentTintColor = (ThemeManager.shared.currentPreset == .glass || ThemeManager.shared.currentPreset == .childish) ? .white : kSurface
+        addBtn.contentTintColor = .white
         addBtn.target = self; addBtn.action = #selector(showPanel); addSubview(addBtn)
 
         clearBtn.title = "Clear Done"; clearBtn.font = dynamicFont(size: 11, weight: .medium)
@@ -676,23 +575,21 @@ class TodoView: NSView {
         DispatchQueue.main.async {
             CATransaction.begin()
             CATransaction.setDisableActions(true)
-            let p = ThemeManager.shared.currentPreset
-            self.layer?.backgroundColor = p.bgColor.cgColor
-            self.layer?.cornerRadius = p.cornerRadius
-            self.layer?.borderColor = NSColor.clear.cgColor
-            self.layer?.borderWidth = 0
-            self.updateThemeRecursively(preset: p)
+            self.layer?.backgroundColor = kBg.cgColor
+            self.layer?.cornerRadius = kRadius
+            self.layer?.borderColor = kBorder.cgColor
+            self.layer?.borderWidth = kBorderWidth
+            self.updateThemeRecursively()
             CATransaction.commit()
-            self.reload()
             self.needsDisplay = true
         }
     }
 
-    override func mouseDown(with event: NSEvent) { dragStart = NSEvent.mouseLocation; if let w = window { initialWinOrigin = w.frame.origin }; dragActive = true; window?.makeKey() }
+    override func mouseDown(with event: NSEvent) { dragStart = event.locationInWindow; dragActive = true; window?.makeKey() }
     override func mouseDragged(with event: NSEvent) {
         guard dragActive, let w = window else { return }
-        let c = NSEvent.mouseLocation
-        w.setFrameOrigin(NSPoint(x: initialWinOrigin.x + (c.x - dragStart.x), y: initialWinOrigin.y + (c.y - dragStart.y)))
+        let c = event.locationInWindow
+        w.setFrameOrigin(NSPoint(x: w.frame.origin.x + c.x - dragStart.x, y: w.frame.origin.y + c.y - dragStart.y))
     }
     override func mouseUp(with event: NSEvent) {
         dragActive = false
@@ -705,13 +602,13 @@ class CalendarView: NSView {
     let widgetKey = "calendar"
     private let titleLabel = NSTextField()
     private var dayViews: [NSTextField] = []
-    private var dragStart: NSPoint = .zero, initialWinOrigin: NSPoint = .zero, dragActive = false
+    private var dragStart: NSPoint = .zero, dragActive = false
 
     override init(frame: NSRect) { super.init(frame: frame); build(); listenForThemeChanges() }
     required init?(coder: NSCoder) { fatalError() }
 
     private func build() {
-        wantsLayer = true; layer?.cornerRadius = kRadius; layer?.borderWidth = 0; layer?.borderColor = NSColor.clear.cgColor
+        wantsLayer = true; layer?.cornerRadius = kRadius; layer?.borderWidth = kBorderWidth; layer?.borderColor = kBorder.cgColor
         layer?.backgroundColor = ThemeManager.shared.currentBgColor.cgColor
 
         titleLabel.font = dynamicFont(size: 13, weight: .bold); titleLabel.textColor = kText
@@ -759,7 +656,7 @@ class CalendarView: NSView {
             if dNum >= 1 && dNum <= numDays {
                 lbl.stringValue = "\(dNum)"
                 if dNum == today {
-                    lbl.backgroundColor = kAccent; lbl.textColor = (ThemeManager.shared.currentPreset == .glass || ThemeManager.shared.currentPreset == .childish) ? .white : kSurface; lbl.font = dynamicFont(size: 11, weight: .bold)
+                    lbl.backgroundColor = kAccent; lbl.textColor = .white; lbl.font = dynamicFont(size: 11, weight: .bold)
                 } else {
                     lbl.backgroundColor = .clear; lbl.textColor = kText; lbl.font = dynamicFont(size: 11, weight: .medium)
                 }
@@ -772,23 +669,22 @@ class CalendarView: NSView {
         DispatchQueue.main.async {
             CATransaction.begin()
             CATransaction.setDisableActions(true)
-            let p = ThemeManager.shared.currentPreset
-            self.layer?.backgroundColor = p.bgColor.cgColor
-            self.layer?.cornerRadius = p.cornerRadius
-            self.layer?.borderColor = NSColor.clear.cgColor
-            self.layer?.borderWidth = 0
-            self.updateThemeRecursively(preset: p)
+            self.layer?.backgroundColor = kBg.cgColor
+            self.layer?.cornerRadius = kRadius
+            self.layer?.borderColor = kBorder.cgColor
+            self.layer?.borderWidth = kBorderWidth
+            self.updateThemeRecursively()
             self.updateCalendar()
             CATransaction.commit()
             self.needsDisplay = true
         }
     }
 
-    override func mouseDown(with event: NSEvent) { dragStart = NSEvent.mouseLocation; if let w = window { initialWinOrigin = w.frame.origin }; dragActive = true; window?.makeKey() }
+    override func mouseDown(with event: NSEvent) { dragStart = event.locationInWindow; dragActive = true; window?.makeKey() }
     override func mouseDragged(with event: NSEvent) {
         guard dragActive, let w = window else { return }
-        let c = NSEvent.mouseLocation
-        w.setFrameOrigin(NSPoint(x: initialWinOrigin.x + (c.x - dragStart.x), y: initialWinOrigin.y + (c.y - dragStart.y)))
+        let c = event.locationInWindow
+        w.setFrameOrigin(NSPoint(x: w.frame.origin.x + c.x - dragStart.x, y: w.frame.origin.y + c.y - dragStart.y))
     }
     override func mouseUp(with event: NSEvent) {
         dragActive = false
@@ -811,13 +707,13 @@ class BatteryView: NSView {
     private var timer: Timer?
     private var isFetching = false
     private var lastDevices: [(name: String, battery: Int?)] = []
-    private var dragStart: NSPoint = .zero, initialWinOrigin: NSPoint = .zero, dragActive = false
+    private var dragStart: NSPoint = .zero, dragActive = false
 
     override init(frame: NSRect) { super.init(frame: frame); build(); listenForThemeChanges() }
     required init?(coder: NSCoder) { fatalError() }
 
     private func build() {
-        wantsLayer = true; layer?.cornerRadius = kRadius; layer?.borderWidth = 0; layer?.borderColor = NSColor.clear.cgColor
+        wantsLayer = true; layer?.cornerRadius = kRadius; layer?.borderWidth = kBorderWidth; layer?.borderColor = kBorder.cgColor
         layer?.backgroundColor = ThemeManager.shared.currentBgColor.cgColor
 
         macCard.wantsLayer = true; macCard.layer?.cornerRadius = kRadius / 2; macCard.layer?.backgroundColor = kSurface.cgColor
@@ -966,7 +862,7 @@ class BatteryView: NSView {
             let badgeTF = NSTextField()
             let badgeCell = CenteredTextFieldCell(textCell: "\(batVal)%")
             badgeCell.alignment = .center; badgeCell.font = dynamicFont(size: 11, weight: .bold)
-            badgeCell.textColor = (ThemeManager.shared.currentPreset == .glass || ThemeManager.shared.currentPreset == .childish) ? .white : kSurface
+            badgeCell.textColor = .white
             badgeTF.cell = badgeCell; badgeTF.stringValue = "\(batVal)%"
             badgeTF.isEditable = false; badgeTF.isBordered = false
             badgeTF.wantsLayer = true; badgeTF.layer?.cornerRadius = kRadius / 2; badgeTF.layer?.backgroundColor = kAccent.cgColor
@@ -983,23 +879,22 @@ class BatteryView: NSView {
         DispatchQueue.main.async {
             CATransaction.begin()
             CATransaction.setDisableActions(true)
-            let p = ThemeManager.shared.currentPreset
-            self.layer?.backgroundColor = p.bgColor.cgColor
-            self.layer?.cornerRadius = p.cornerRadius
-            self.layer?.borderColor = NSColor.clear.cgColor
-            self.layer?.borderWidth = 0
-            self.updateThemeRecursively(preset: p)
+            self.layer?.backgroundColor = kBg.cgColor
+            self.layer?.cornerRadius = kRadius
+            self.layer?.borderColor = kBorder.cgColor
+            self.layer?.borderWidth = kBorderWidth
+            self.updateThemeRecursively()
             self.updateBattery()
             CATransaction.commit()
             self.needsDisplay = true
         }
     }
 
-    override func mouseDown(with event: NSEvent) { dragStart = NSEvent.mouseLocation; if let w = window { initialWinOrigin = w.frame.origin }; dragActive = true; window?.makeKey() }
+    override func mouseDown(with event: NSEvent) { dragStart = event.locationInWindow; dragActive = true; window?.makeKey() }
     override func mouseDragged(with event: NSEvent) {
         guard dragActive, let w = window else { return }
-        let c = NSEvent.mouseLocation
-        w.setFrameOrigin(NSPoint(x: initialWinOrigin.x + (c.x - dragStart.x), y: initialWinOrigin.y + (c.y - dragStart.y)))
+        let c = event.locationInWindow
+        w.setFrameOrigin(NSPoint(x: w.frame.origin.x + c.x - dragStart.x, y: w.frame.origin.y + c.y - dragStart.y))
     }
     override func mouseUp(with event: NSEvent) {
         dragActive = false
@@ -1013,13 +908,13 @@ class DigitalClockView: NSView {
     private let timeLabel = NSTextField()
     private let dateLabel = NSTextField()
     private var timer: Timer?
-    private var dragStart: NSPoint = .zero, initialWinOrigin: NSPoint = .zero, dragActive = false
+    private var dragStart: NSPoint = .zero, dragActive = false
 
     override init(frame: NSRect) { super.init(frame: frame); build(); updateTime(); startTimer(); listenForThemeChanges() }
     required init?(coder: NSCoder) { fatalError() }
 
     private func build() {
-        wantsLayer = true; layer?.cornerRadius = kRadius; layer?.borderWidth = 0; layer?.borderColor = NSColor.clear.cgColor
+        wantsLayer = true; layer?.cornerRadius = kRadius; layer?.borderWidth = kBorderWidth; layer?.borderColor = kBorder.cgColor
         layer?.backgroundColor = ThemeManager.shared.currentBgColor.cgColor
 
         timeLabel.font = dynamicFont(size: 42, weight: .bold); timeLabel.textColor = kText; timeLabel.alignment = .center
@@ -1052,23 +947,22 @@ class DigitalClockView: NSView {
         DispatchQueue.main.async {
             CATransaction.begin()
             CATransaction.setDisableActions(true)
-            let p = ThemeManager.shared.currentPreset
-            self.layer?.backgroundColor = p.bgColor.cgColor
-            self.layer?.cornerRadius = p.cornerRadius
-            self.layer?.borderColor = NSColor.clear.cgColor
-            self.layer?.borderWidth = 0
-            self.updateThemeRecursively(preset: p)
+            self.layer?.backgroundColor = kBg.cgColor
+            self.layer?.cornerRadius = kRadius
+            self.layer?.borderColor = kBorder.cgColor
+            self.layer?.borderWidth = kBorderWidth
+            self.updateThemeRecursively()
             self.updateTime()
             CATransaction.commit()
             self.needsDisplay = true
         }
     }
 
-    override func mouseDown(with event: NSEvent) { dragStart = NSEvent.mouseLocation; if let w = window { initialWinOrigin = w.frame.origin }; dragActive = true; window?.makeKey() }
+    override func mouseDown(with event: NSEvent) { dragStart = event.locationInWindow; dragActive = true; window?.makeKey() }
     override func mouseDragged(with event: NSEvent) {
         guard dragActive, let w = window else { return }
-        let c = NSEvent.mouseLocation
-        w.setFrameOrigin(NSPoint(x: initialWinOrigin.x + (c.x - dragStart.x), y: initialWinOrigin.y + (c.y - dragStart.y)))
+        let c = event.locationInWindow
+        w.setFrameOrigin(NSPoint(x: w.frame.origin.x + c.x - dragStart.x, y: w.frame.origin.y + c.y - dragStart.y))
     }
     override func mouseUp(with event: NSEvent) {
         dragActive = false
@@ -1079,195 +973,83 @@ class DigitalClockView: NSView {
 // MARK: - 5. COLOR PICKER WIDGET (tutucolor)
 class ColorPickerView: NSView {
     let widgetKey = "color_picker"
-    private let bgTitleLabel = NSTextField()
-    private let bgSwatchesContainer = NSView()
-    private let bgPickerBtn = NSButton()
-
-    private let textTitleLabel = NSTextField()
-    private let textSwatchesContainer = NSView()
-    private let textPickerBtn = NSButton()
-
+    private let swatchesContainer = NSView()
+    private let pickerBtn = NSButton()
     private var dragStart: NSPoint = .zero, dragActive = false
-    private var activePickerMode: String = "bg"
-    
-    private let bgPresetHexes   = ["#FEF9C3", "#090D16", "#FFE3F1", "#E0F2FE", "#F3E8FF", "#DCFCE7", "#F5EBE0"]
-    private let textPresetHexes = ["#800020", "#000000", "#FFFFFF", "#6366F1", "#10B981", "#FF4FA0", "#64748B"]
+    private let presetHexes = ["#FEF9C3", "#090D16", "#FFE3F1", "#E0F2FE", "#F3E8FF", "#F5EBE0"]
 
-    override init(frame: NSRect) {
-        super.init(frame: frame)
-        build()
-        listenForThemeChanges()
-    }
+    override init(frame: NSRect) { super.init(frame: frame); build(); listenForThemeChanges() }
     required init?(coder: NSCoder) { fatalError() }
 
     private func build() {
-        wantsLayer = true
-        layer?.cornerRadius = kRadius
-        layer?.borderWidth = kBorderWidth
-        layer?.borderColor = kBorder.cgColor
+        wantsLayer = true; layer?.cornerRadius = kRadius; layer?.borderWidth = kBorderWidth; layer?.borderColor = kBorder.cgColor
         layer?.backgroundColor = ThemeManager.shared.currentBgColor.cgColor
 
-        // BG Row
-        bgTitleLabel.stringValue = "BG COLOR"
-        bgTitleLabel.font = dynamicFont(size: 9, weight: .bold)
-        bgTitleLabel.textColor = kText
-        bgTitleLabel.isEditable = false; bgTitleLabel.isBordered = false; bgTitleLabel.backgroundColor = .clear
-        addSubview(bgTitleLabel)
-
-        bgSwatchesContainer.wantsLayer = true
-        addSubview(bgSwatchesContainer)
-
-        bgPickerBtn.title = "Bg 🎨"
-        bgPickerBtn.font = dynamicFont(size: 9, weight: .bold)
-        bgPickerBtn.isBordered = false; bgPickerBtn.wantsLayer = true; bgPickerBtn.layer?.cornerRadius = kRadius / 2
-        bgPickerBtn.layer?.backgroundColor = kAccent.cgColor; bgPickerBtn.layer?.borderWidth = kBorderWidth; bgPickerBtn.layer?.borderColor = kBorder.cgColor
-        bgPickerBtn.contentTintColor = .white
-        bgPickerBtn.target = self; bgPickerBtn.action = #selector(openBgColorPicker); addSubview(bgPickerBtn)
-
-        // Text Row
-        textTitleLabel.stringValue = "FONT COLOR"
-        textTitleLabel.font = dynamicFont(size: 9, weight: .bold)
-        textTitleLabel.textColor = kText
-        textTitleLabel.isEditable = false; textTitleLabel.isBordered = false; textTitleLabel.backgroundColor = .clear
-        addSubview(textTitleLabel)
-
-        textSwatchesContainer.wantsLayer = true
-        addSubview(textSwatchesContainer)
-
-        textPickerBtn.title = "Font 🔤"
-        textPickerBtn.font = dynamicFont(size: 9, weight: .bold)
-        textPickerBtn.isBordered = false; textPickerBtn.wantsLayer = true; textPickerBtn.layer?.cornerRadius = kRadius / 2
-        textPickerBtn.layer?.backgroundColor = kAccent.cgColor; textPickerBtn.layer?.borderWidth = kBorderWidth; textPickerBtn.layer?.borderColor = kBorder.cgColor
-        textPickerBtn.contentTintColor = .white
-        textPickerBtn.target = self; textPickerBtn.action = #selector(openTextColorPicker); addSubview(textPickerBtn)
-
+        swatchesContainer.wantsLayer = true; addSubview(swatchesContainer)
         renderSwatches()
+
+        pickerBtn.title = "WihhL"
+        pickerBtn.font = dynamicFont(size: 11, weight: .bold)
+        pickerBtn.isBordered = false; pickerBtn.wantsLayer = true; pickerBtn.layer?.cornerRadius = kRadius / 2
+        pickerBtn.layer?.backgroundColor = kAccent.cgColor; pickerBtn.layer?.borderWidth = kBorderWidth; pickerBtn.layer?.borderColor = kBorder.cgColor
+        pickerBtn.contentTintColor = .white
+        pickerBtn.target = self; pickerBtn.action = #selector(openNativeColorPicker); addSubview(pickerBtn)
     }
 
     private func renderSwatches() {
-        // Render BG Swatches
-        for sub in bgSwatchesContainer.subviews { sub.removeFromSuperview() }
-        let activeBgHex = ThemeManager.shared.currentBgColor.toHex().uppercased()
-        let size: CGFloat = 16, gap: CGFloat = 4
-
-        for (i, hex) in bgPresetHexes.enumerated() {
+        for sub in swatchesContainer.subviews { sub.removeFromSuperview() }
+        let size: CGFloat = 24, gap: CGFloat = 8
+        for (i, hex) in presetHexes.enumerated() {
             let btn = NSButton(frame: NSRect(x: CGFloat(i) * (size + gap), y: 0, width: size, height: size))
-            btn.title = ""; btn.isBordered = false; btn.wantsLayer = true; btn.layer?.cornerRadius = size / 2
-            let isSelected = (hex.uppercased() == activeBgHex)
-            btn.layer?.borderWidth = isSelected ? 2.0 : 1.0
-            btn.layer?.borderColor = isSelected ? kText.cgColor : kBorder.withAlphaComponent(0.6).cgColor
+            btn.title = ""; btn.isBordered = false; btn.wantsLayer = true; btn.layer?.cornerRadius = kRadius / 2
+            btn.layer?.borderWidth = kBorderWidth; btn.layer?.borderColor = kBorder.cgColor
             if let color = NSColor(hex: hex) { btn.layer?.backgroundColor = color.cgColor }
-            btn.target = self; btn.action = #selector(bgSwatchTapped(_:)); btn.tag = i
-            bgSwatchesContainer.addSubview(btn)
-        }
-
-        // Render Text Swatches
-        for sub in textSwatchesContainer.subviews { sub.removeFromSuperview() }
-        let activeTextHex = ThemeManager.shared.currentTextColor.toHex().uppercased()
-
-        for (i, hex) in textPresetHexes.enumerated() {
-            let btn = NSButton(frame: NSRect(x: CGFloat(i) * (size + gap), y: 0, width: size, height: size))
-            btn.title = ""; btn.isBordered = false; btn.wantsLayer = true; btn.layer?.cornerRadius = size / 2
-            let isSelected = (hex.uppercased() == activeTextHex)
-            btn.layer?.borderWidth = isSelected ? 2.0 : 1.0
-            btn.layer?.borderColor = isSelected ? kText.cgColor : kBorder.withAlphaComponent(0.6).cgColor
-            if let color = NSColor(hex: hex) { btn.layer?.backgroundColor = color.cgColor }
-            btn.target = self; btn.action = #selector(textSwatchTapped(_:)); btn.tag = i
-            textSwatchesContainer.addSubview(btn)
+            btn.target = self; btn.action = #selector(swatchTapped(_:)); btn.tag = i
+            swatchesContainer.addSubview(btn)
         }
     }
 
-    @objc private func bgSwatchTapped(_ sender: NSButton) {
-        let hex = bgPresetHexes[sender.tag]
+    @objc private func swatchTapped(_ sender: NSButton) {
+        let hex = presetHexes[sender.tag]
         if let color = NSColor(hex: hex) {
             ThemeManager.shared.currentBgColor = color
-            renderSwatches()
         }
     }
 
-    @objc private func textSwatchTapped(_ sender: NSButton) {
-        let hex = textPresetHexes[sender.tag]
-        if let color = NSColor(hex: hex) {
-            ThemeManager.shared.currentTextColor = color
-            renderSwatches()
-        }
-    }
-
-    @objc private func openBgColorPicker() {
-        activePickerMode = "bg"
+    @objc private func openNativeColorPicker() {
         NSColorPanel.shared.color = ThemeManager.shared.currentBgColor
         NSColorPanel.shared.setTarget(self)
         NSColorPanel.shared.setAction(#selector(colorPanelChanged(_:)))
         NSColorPanel.shared.orderFront(nil)
     }
 
-    @objc private func openTextColorPicker() {
-        activePickerMode = "text"
-        NSColorPanel.shared.color = ThemeManager.shared.currentTextColor
-        NSColorPanel.shared.setTarget(self)
-        NSColorPanel.shared.setAction(#selector(colorPanelChanged(_:)))
-        NSColorPanel.shared.orderFront(nil)
-    }
-
     @objc private func colorPanelChanged(_ sender: NSColorPanel) {
-        if activePickerMode == "bg" {
-            ThemeManager.shared.currentBgColor = sender.color
-        } else {
-            ThemeManager.shared.currentTextColor = sender.color
-        }
-        renderSwatches()
+        ThemeManager.shared.currentBgColor = sender.color
     }
 
     override func layout() {
         super.layout()
         let w = bounds.width, h = bounds.height
-        let rowH = (h - 10) / 2
-        let totalSwatchesW = CGFloat(bgPresetHexes.count) * 20.0 - 4.0
-
-        // Row 1 (BG)
-        bgTitleLabel.frame = NSRect(x: 10, y: h - 18, width: 65, height: 14)
-        bgSwatchesContainer.frame = NSRect(x: 75, y: h - rowH + 2, width: totalSwatchesW, height: 16)
-        bgPickerBtn.frame = NSRect(x: w - 58, y: h - rowH + 1, width: 48, height: 20)
-
-        // Row 2 (Text)
-        textTitleLabel.frame = NSRect(x: 10, y: rowH - 12, width: 65, height: 14)
-        textSwatchesContainer.frame = NSRect(x: 75, y: 6, width: totalSwatchesW, height: 16)
-        textPickerBtn.frame = NSRect(x: w - 58, y: 5, width: 48, height: 20)
+        let totalSwatchesW = CGFloat(presetHexes.count) * 32.0 - 8.0
+        swatchesContainer.frame = NSRect(x: 16, y: (h - 24)/2, width: totalSwatchesW, height: 24)
+        pickerBtn.frame = NSRect(x: w - 74, y: (h - 26)/2, width: 58, height: 26)
     }
 
-    private func listenForThemeChanges() {
-        NotificationCenter.default.addObserver(self, selector: #selector(onThemeChanged), name: ThemeManager.notifName, object: nil)
-        DistributedNotificationCenter.default().addObserver(self, selector: #selector(onThemeChanged), name: ThemeManager.notifName, object: nil)
-    }
-
+    private func listenForThemeChanges() { DistributedNotificationCenter.default().addObserver(self, selector: #selector(onThemeChanged), name: ThemeManager.notifName, object: nil) }
     @objc private func onThemeChanged() {
         DispatchQueue.main.async {
             CATransaction.begin()
             CATransaction.setDisableActions(true)
-            let p = ThemeManager.shared.currentPreset
-            let activeColor = ThemeManager.shared.currentBgColor
-            let activeText = ThemeManager.shared.currentTextColor
-            self.layer?.backgroundColor = activeColor.cgColor
-            self.layer?.cornerRadius = p.cornerRadius
-            self.layer?.borderColor = p.borderColor.cgColor
-            self.layer?.borderWidth = p.borderWidth
-
-            self.bgTitleLabel.textColor = activeText
-            self.textTitleLabel.textColor = activeText
-
-            self.bgPickerBtn.layer?.cornerRadius = p.cornerRadius / 2
-            self.bgPickerBtn.layer?.backgroundColor = p.accentColor.cgColor
-            self.bgPickerBtn.layer?.borderColor = p.borderColor.cgColor
-            self.bgPickerBtn.layer?.borderWidth = p.borderWidth
-            self.bgPickerBtn.font = p.font(size: 9, weight: .bold)
-
-            self.textPickerBtn.layer?.cornerRadius = p.cornerRadius / 2
-            self.textPickerBtn.layer?.backgroundColor = p.accentColor.cgColor
-            self.textPickerBtn.layer?.borderColor = p.borderColor.cgColor
-            self.textPickerBtn.layer?.borderWidth = p.borderWidth
-            self.textPickerBtn.font = p.font(size: 9, weight: .bold)
-
-            self.updateThemeRecursively(preset: p)
+            self.layer?.backgroundColor = kBg.cgColor
+            self.layer?.cornerRadius = kRadius
+            self.layer?.borderColor = kBorder.cgColor
+            self.layer?.borderWidth = kBorderWidth
+            self.pickerBtn.layer?.cornerRadius = kRadius / 2
+            self.pickerBtn.layer?.backgroundColor = kAccent.cgColor
+            self.pickerBtn.layer?.borderColor = kBorder.cgColor
+            self.pickerBtn.layer?.borderWidth = kBorderWidth
+            self.pickerBtn.font = dynamicFont(size: 11, weight: .bold)
+            self.updateThemeRecursively()
             self.renderSwatches()
             CATransaction.commit()
             self.needsDisplay = true
@@ -1289,7 +1071,7 @@ class ColorPickerView: NSView {
 // MARK: - 6. CIRCULAR ANALOG CLOCK WIDGET (tutuclockcircle)
 class AnalogClockView: NSView {
     let widgetKey = "analog_clock"
-    private var timer: Timer?, dragStart: NSPoint = .zero, initialWinOrigin: NSPoint = .zero, dragActive = false
+    private var timer: Timer?, dragStart: NSPoint = .zero, dragActive = false
 
     override init(frame: NSRect) { super.init(frame: frame); build(); startTimer(); listenForThemeChanges() }
     required init?(coder: NSCoder) { fatalError() }
@@ -1297,7 +1079,7 @@ class AnalogClockView: NSView {
     private func build() {
         wantsLayer = true; layer?.cornerRadius = bounds.width / 2.0
         layer?.backgroundColor = ThemeManager.shared.currentBgColor.cgColor
-        layer?.borderWidth = 0; layer?.borderColor = NSColor.clear.cgColor
+        layer?.borderWidth = kBorderWidth; layer?.borderColor = kBorder.cgColor
     }
 
     private func startTimer() { timer = Timer.scheduledTimer(withTimeInterval: 1.0, repeats: true) { [weak self] _ in self?.needsDisplay = true } }
@@ -1339,22 +1121,21 @@ class AnalogClockView: NSView {
         DispatchQueue.main.async {
             CATransaction.begin()
             CATransaction.setDisableActions(true)
-            let p = ThemeManager.shared.currentPreset
-            self.layer?.backgroundColor = p.bgColor.cgColor
+            self.layer?.backgroundColor = kBg.cgColor
             self.layer?.cornerRadius = self.bounds.width / 2.0
-            self.layer?.borderColor = NSColor.clear.cgColor
-            self.layer?.borderWidth = 0
-            self.updateThemeRecursively(preset: p)
+            self.layer?.borderColor = kBorder.cgColor
+            self.layer?.borderWidth = kBorderWidth
+            self.updateThemeRecursively()
             CATransaction.commit()
             self.needsDisplay = true
         }
     }
 
-    override func mouseDown(with event: NSEvent) { dragStart = NSEvent.mouseLocation; if let w = window { initialWinOrigin = w.frame.origin }; dragActive = true; window?.makeKey() }
+    override func mouseDown(with event: NSEvent) { dragStart = event.locationInWindow; dragActive = true; window?.makeKey() }
     override func mouseDragged(with event: NSEvent) {
         guard dragActive, let w = window else { return }
-        let c = NSEvent.mouseLocation
-        w.setFrameOrigin(NSPoint(x: initialWinOrigin.x + (c.x - dragStart.x), y: initialWinOrigin.y + (c.y - dragStart.y)))
+        let c = event.locationInWindow
+        w.setFrameOrigin(NSPoint(x: w.frame.origin.x + c.x - dragStart.x, y: w.frame.origin.y + c.y - dragStart.y))
     }
     override func mouseUp(with event: NSEvent) {
         dragActive = false
@@ -1411,17 +1192,17 @@ class SpotifyView: NSView {
     private let trackLabel = NSTextField(), artistLabel = NSTextField()
     private let progressBar = ProgressBarView(), currTimeLabel = NSTextField(), durTimeLabel = NSTextField()
     private let prevBtn = NSButton(), playBtn = NSButton(), nextBtn = NSButton(), statusLabel = NSTextField()
-    private var timer: Timer?, currentArtUrl = "", isPlaying = false, dragStart: NSPoint = .zero, initialWinOrigin: NSPoint = .zero, dragActive = false
+    private var timer: Timer?, currentArtUrl = "", isPlaying = false, dragStart: NSPoint = .zero, dragActive = false
 
     override init(frame: NSRect) { super.init(frame: frame); build(); updateSpotifyInfo(); startTimer(); listenForThemeChanges() }
     required init?(coder: NSCoder) { fatalError() }
 
     private func build() {
-        wantsLayer = true; layer?.cornerRadius = kRadius; layer?.borderWidth = 0; layer?.borderColor = NSColor.clear.cgColor
+        wantsLayer = true; layer?.cornerRadius = kRadius; layer?.borderWidth = kBorderWidth; layer?.borderColor = kBorder.cgColor
         layer?.backgroundColor = ThemeManager.shared.currentBgColor.cgColor
         addSubview(eqView)
 
-        artImageView.wantsLayer = true; artImageView.layer?.cornerRadius = 0.0; artImageView.layer?.borderWidth = kBorderWidth; artImageView.layer?.borderColor = kBorder.cgColor
+        artImageView.wantsLayer = true; artImageView.layer?.cornerRadius = kRadius / 2; artImageView.layer?.borderWidth = kBorderWidth; artImageView.layer?.borderColor = kBorder.cgColor
         artImageView.imageScaling = .scaleAxesIndependently; artImageView.imageAlignment = .alignCenter; addSubview(artImageView)
 
         trackLabel.font = dynamicFont(size: 13, weight: .bold); trackLabel.textColor = kText; trackLabel.isEditable = false; trackLabel.isBordered = false; trackLabel.backgroundColor = .clear; trackLabel.lineBreakMode = .byTruncatingTail; addSubview(trackLabel)
@@ -1440,7 +1221,7 @@ class SpotifyView: NSView {
 
     private func setupBtn(_ btn: NSButton, title: String, action: Selector) {
         btn.title = title; btn.font = dynamicFont(size: 12, weight: .bold); btn.isBordered = false; btn.wantsLayer = true; btn.layer?.cornerRadius = kRadius / 2; btn.layer?.backgroundColor = kAccent.cgColor; btn.layer?.borderWidth = kBorderWidth; btn.layer?.borderColor = kBorder.cgColor
-        btn.contentTintColor = (ThemeManager.shared.currentPreset == .glass || ThemeManager.shared.currentPreset == .childish) ? .white : kSurface; btn.target = self; btn.action = action; addSubview(btn)
+        btn.contentTintColor = .white; btn.target = self; btn.action = action; addSubview(btn)
     }
 
     override func layout() {
@@ -1470,16 +1251,11 @@ class SpotifyView: NSView {
 
     @objc private func updateSpotifyInfo() {
         let sc = """
-        if application "Spotify" is running then
+        tell application "System Events" to set isRunning to (name of processes) contains "Spotify"
+        if isRunning then
             tell application "Spotify"
                 if player state is playing or player state is paused then
-                    set trackName to name of current track
-                    set artistName to artist of current track
-                    set artUrl to artwork url of current track
-                    set pState to (player state is playing)
-                    set pPos to player position
-                    set pDur to (duration of current track) / 1000.0
-                    return trackName & "|||" & artistName & "|||" & artUrl & "|||" & pState & "|||" & pPos & "|||" & pDur
+                    return (name of current track) & "|||" & (artist of current track) & "|||" & (artwork url of current track) & "|||" & (player state is playing) & "|||" & (player position) & "|||" & ((duration of current track) / 1000.0)
                 end if
             end tell
         end if
@@ -1519,32 +1295,31 @@ class SpotifyView: NSView {
         DispatchQueue.main.async {
             CATransaction.begin()
             CATransaction.setDisableActions(true)
-            let p = ThemeManager.shared.currentPreset
-            self.layer?.backgroundColor = p.bgColor.cgColor
-            self.layer?.cornerRadius = p.cornerRadius
-            self.layer?.borderColor = NSColor.clear.cgColor
-            self.layer?.borderWidth = 0
-            self.artImageView.layer?.cornerRadius = 0.0
-            self.artImageView.layer?.borderColor = p.borderColor.cgColor
-            self.artImageView.layer?.borderWidth = p.borderWidth
+            self.layer?.backgroundColor = kBg.cgColor
+            self.layer?.cornerRadius = kRadius
+            self.layer?.borderColor = kBorder.cgColor
+            self.layer?.borderWidth = kBorderWidth
+            self.artImageView.layer?.cornerRadius = kRadius / 2
+            self.artImageView.layer?.borderColor = kBorder.cgColor
+            self.artImageView.layer?.borderWidth = kBorderWidth
             for btn in [self.prevBtn, self.playBtn, self.nextBtn] {
-                btn.layer?.cornerRadius = p.cornerRadius / 2
-                btn.layer?.backgroundColor = p.accentColor.cgColor
-                btn.layer?.borderColor = p.borderColor.cgColor
-                btn.layer?.borderWidth = p.borderWidth
-                btn.font = p.font(size: 12, weight: .bold)
+                btn.layer?.cornerRadius = kRadius / 2
+                btn.layer?.backgroundColor = kAccent.cgColor
+                btn.layer?.borderColor = kBorder.cgColor
+                btn.layer?.borderWidth = kBorderWidth
+                btn.font = dynamicFont(size: 12, weight: .bold)
             }
-            self.updateThemeRecursively(preset: p)
+            self.updateThemeRecursively()
             CATransaction.commit()
             self.needsDisplay = true
         }
     }
 
-    override func mouseDown(with event: NSEvent) { dragStart = NSEvent.mouseLocation; if let w = window { initialWinOrigin = w.frame.origin }; dragActive = true; window?.makeKey() }
+    override func mouseDown(with event: NSEvent) { dragStart = event.locationInWindow; dragActive = true; window?.makeKey() }
     override func mouseDragged(with event: NSEvent) {
         guard dragActive, let w = window else { return }
-        let c = NSEvent.mouseLocation
-        w.setFrameOrigin(NSPoint(x: initialWinOrigin.x + (c.x - dragStart.x), y: initialWinOrigin.y + (c.y - dragStart.y)))
+        let c = event.locationInWindow
+        w.setFrameOrigin(NSPoint(x: w.frame.origin.x + c.x - dragStart.x, y: w.frame.origin.y + c.y - dragStart.y))
     }
     override func mouseUp(with event: NSEvent) {
         dragActive = false
@@ -1556,7 +1331,7 @@ class SpotifyView: NSView {
 class GifView: NSView {
     let widgetKey = "gif"
     private let imageView = NSImageView()
-    private var dragStart: NSPoint = .zero, initialWinOrigin: NSPoint = .zero
+    private var dragStart: NSPoint = .zero
     private var dragMoved = false
 
     override init(frame: NSRect) { super.init(frame: frame); build(); loadGif() }
@@ -1583,19 +1358,19 @@ class GifView: NSView {
     }
 
     override func mouseDown(with event: NSEvent) {
-        dragStart = NSEvent.mouseLocation
-        if let w = window { initialWinOrigin = w.frame.origin }
+        dragStart = event.locationInWindow
         dragMoved = false
         window?.makeKey()
     }
 
     override func mouseDragged(with event: NSEvent) {
         guard let w = window else { return }
-        let c = NSEvent.mouseLocation
-        let dx = c.x - dragStart.x, dy = c.y - dragStart.y
+        let c = event.locationInWindow
+        let dx = c.x - dragStart.x
+        let dy = c.y - dragStart.y
         if abs(dx) > 2 || abs(dy) > 2 {
             dragMoved = true
-            w.setFrameOrigin(NSPoint(x: initialWinOrigin.x + dx, y: initialWinOrigin.y + dy))
+            w.setFrameOrigin(NSPoint(x: w.frame.origin.x + dx, y: w.frame.origin.y + dy))
         }
     }
 
@@ -1626,14 +1401,14 @@ class GithubView: NSView {
     private let contribsLbl     = NSTextField()
 
     private var timer: Timer?
-    private var dragStart: NSPoint = .zero, initialWinOrigin: NSPoint = .zero
+    private var dragStart: NSPoint = .zero
     private var dragMoved = false
 
     override init(frame: NSRect) { super.init(frame: frame); build(); fetchStats(); startTimer(); listenForThemeChanges() }
     required init?(coder: NSCoder) { fatalError() }
 
     private func build() {
-        wantsLayer = true; layer?.cornerRadius = kRadius; layer?.borderWidth = 0; layer?.borderColor = NSColor.clear.cgColor
+        wantsLayer = true; layer?.cornerRadius = kRadius; layer?.borderWidth = kBorderWidth; layer?.borderColor = kBorder.cgColor
         layer?.backgroundColor = ThemeManager.shared.currentBgColor.cgColor
 
         titleLabel.stringValue = "GITHUB"
@@ -1646,7 +1421,7 @@ class GithubView: NSView {
         userBadge.isEditable = false; userBadge.isBordered = false; userBadge.backgroundColor = .clear
         addSubview(userBadge)
 
-        avatarImageView.wantsLayer = true; avatarImageView.layer?.cornerRadius = 0.0; avatarImageView.layer?.borderWidth = kBorderWidth; avatarImageView.layer?.borderColor = kBorder.cgColor
+        avatarImageView.wantsLayer = true; avatarImageView.layer?.cornerRadius = kRadius / 2; avatarImageView.layer?.borderWidth = kBorderWidth; avatarImageView.layer?.borderColor = kBorder.cgColor
         avatarImageView.imageScaling = .scaleAxesIndependently; avatarImageView.imageAlignment = .alignCenter
         addSubview(avatarImageView)
 
@@ -1775,31 +1550,29 @@ class GithubView: NSView {
         DispatchQueue.main.async {
             CATransaction.begin()
             CATransaction.setDisableActions(true)
-            let p = ThemeManager.shared.currentPreset
-            self.layer?.backgroundColor = p.bgColor.cgColor
-            self.layer?.cornerRadius = p.cornerRadius
-            self.layer?.borderColor = NSColor.clear.cgColor
-            self.layer?.borderWidth = 0
-            self.avatarImageView.layer?.cornerRadius = 0.0
-            self.avatarImageView.layer?.borderColor = p.borderColor.cgColor
-            self.avatarImageView.layer?.borderWidth = p.borderWidth
-            self.reposCard.layer?.cornerRadius = p.cornerRadius / 2
-            self.reposCard.layer?.backgroundColor = p.surfaceColor.cgColor
-            self.reposCard.layer?.borderColor = p.borderColor.cgColor
-            self.reposCard.layer?.borderWidth = p.borderWidth
-            self.contribsCard.layer?.cornerRadius = p.cornerRadius / 2
-            self.contribsCard.layer?.backgroundColor = p.surfaceColor.cgColor
-            self.contribsCard.layer?.borderColor = p.borderColor.cgColor
-            self.contribsCard.layer?.borderWidth = p.borderWidth
-            self.updateThemeRecursively(preset: p)
+            self.layer?.backgroundColor = kBg.cgColor
+            self.layer?.cornerRadius = kRadius
+            self.layer?.borderColor = kBorder.cgColor
+            self.layer?.borderWidth = kBorderWidth
+            self.avatarImageView.layer?.cornerRadius = kRadius / 2
+            self.avatarImageView.layer?.borderColor = kBorder.cgColor
+            self.avatarImageView.layer?.borderWidth = kBorderWidth
+            self.reposCard.layer?.cornerRadius = kRadius / 2
+            self.reposCard.layer?.backgroundColor = kSurface.cgColor
+            self.reposCard.layer?.borderColor = kBorder.cgColor
+            self.reposCard.layer?.borderWidth = kBorderWidth
+            self.contribsCard.layer?.cornerRadius = kRadius / 2
+            self.contribsCard.layer?.backgroundColor = kSurface.cgColor
+            self.contribsCard.layer?.borderColor = kBorder.cgColor
+            self.contribsCard.layer?.borderWidth = kBorderWidth
+            self.updateThemeRecursively()
             CATransaction.commit()
             self.needsDisplay = true
         }
     }
 
     override func mouseDown(with event: NSEvent) {
-        dragStart = NSEvent.mouseLocation
-        if let w = window { initialWinOrigin = w.frame.origin }
+        dragStart = event.locationInWindow
         dragMoved = false
         window?.makeKey()
         if event.clickCount == 2 {
@@ -1811,11 +1584,11 @@ class GithubView: NSView {
 
     override func mouseDragged(with event: NSEvent) {
         guard let w = window else { return }
-        let c = NSEvent.mouseLocation
+        let c = event.locationInWindow
         let dx = c.x - dragStart.x, dy = c.y - dragStart.y
         if abs(dx) > 2 || abs(dy) > 2 {
             dragMoved = true
-            w.setFrameOrigin(NSPoint(x: initialWinOrigin.x + dx, y: initialWinOrigin.y + dy))
+            w.setFrameOrigin(NSPoint(x: w.frame.origin.x + dx, y: w.frame.origin.y + dy))
         }
     }
 
@@ -1901,13 +1674,13 @@ class MailView: NSView {
     private let subjectLabel  = NSTextField()
 
     private var timer: Timer?
-    private var dragStart: NSPoint = .zero, initialWinOrigin: NSPoint = .zero, dragActive = false
+    private var dragStart: NSPoint = .zero, dragActive = false
 
     override init(frame: NSRect) { super.init(frame: frame); build(); updateMail(); startTimer(); listenForThemeChanges() }
     required init?(coder: NSCoder) { fatalError() }
 
     private func build() {
-        wantsLayer = true; layer?.cornerRadius = kRadius; layer?.borderWidth = 0; layer?.borderColor = NSColor.clear.cgColor
+        wantsLayer = true; layer?.cornerRadius = kRadius; layer?.borderWidth = kBorderWidth; layer?.borderColor = kBorder.cgColor
         layer?.backgroundColor = ThemeManager.shared.currentBgColor.cgColor
 
         titleLabel.stringValue = "GMAIL"
@@ -2014,25 +1787,22 @@ class MailView: NSView {
         DispatchQueue.main.async {
             CATransaction.begin()
             CATransaction.setDisableActions(true)
-            let p = ThemeManager.shared.currentPreset
-            self.layer?.backgroundColor = p.bgColor.cgColor
-            self.layer?.cornerRadius = p.cornerRadius
-            self.layer?.borderColor = NSColor.clear.cgColor
-            self.layer?.borderWidth = 0
-            self.cardView.layer?.cornerRadius = p.cornerRadius / 2
-            self.cardView.layer?.backgroundColor = p.surfaceColor.cgColor
-            self.cardView.layer?.borderColor = p.borderColor.cgColor
-            self.cardView.layer?.borderWidth = p.borderWidth
-            self.updateThemeRecursively(preset: p)
+            self.layer?.backgroundColor = kBg.cgColor
+            self.layer?.cornerRadius = kRadius
+            self.layer?.borderColor = kBorder.cgColor
+            self.layer?.borderWidth = kBorderWidth
+            self.cardView.layer?.cornerRadius = kRadius / 2
+            self.cardView.layer?.backgroundColor = kSurface.cgColor
+            self.cardView.layer?.borderColor = kBorder.cgColor
+            self.cardView.layer?.borderWidth = kBorderWidth
+            self.updateThemeRecursively()
             CATransaction.commit()
             self.needsDisplay = true
         }
     }
 
     override func mouseDown(with event: NSEvent) {
-        dragStart = NSEvent.mouseLocation
-        if let w = window { initialWinOrigin = w.frame.origin }
-        dragActive = true; window?.makeKey()
+        dragStart = event.locationInWindow; dragActive = true; window?.makeKey()
         if event.clickCount == 2 {
             if let url = URL(string: "https://mail.google.com") {
                 NSWorkspace.shared.open(url)
@@ -2041,8 +1811,8 @@ class MailView: NSView {
     }
     override func mouseDragged(with event: NSEvent) {
         guard dragActive, let w = window else { return }
-        let c = NSEvent.mouseLocation
-        w.setFrameOrigin(NSPoint(x: initialWinOrigin.x + (c.x - dragStart.x), y: initialWinOrigin.y + (c.y - dragStart.y)))
+        let c = event.locationInWindow
+        w.setFrameOrigin(NSPoint(x: w.frame.origin.x + c.x - dragStart.x, y: w.frame.origin.y + c.y - dragStart.y))
     }
     override func mouseUp(with event: NSEvent) {
         dragActive = false
@@ -2050,64 +1820,38 @@ class MailView: NSView {
     }
 }
 
-// MARK: - 11. 6x6 ALBUM COLLAGE WIDGET (tutucollage)
-class AlbumCollageView: NSView {
-    let widgetKey = "album_collage"
-    private var dragStart: NSPoint = .zero, initialWinOrigin: NSPoint = .zero, dragActive = false
-    private var imageViews: [NSImageView] = []
+// MARK: - 11. PHOTO SLOTS WIDGET (tutuphotos)
+struct PhotoSlot { let id: Int; let folderName: String; let rect: NSRect }
 
-    override init(frame: NSRect) {
-        super.init(frame: frame)
-        build()
-        listenForThemeChanges()
+class PhotosView: NSView {
+    let widgetKey: String
+    private let imageView = NSImageView()
+    private let folderName: String
+    private var dragStart: NSPoint = .zero, dragActive = false
+
+    init(frame: NSRect, folderName: String, slotId: Int) {
+        self.folderName = folderName
+        self.widgetKey = "photo_\(slotId)"
+        super.init(frame: frame); build(); loadPhoto(); listenForThemeChanges()
     }
     required init?(coder: NSCoder) { fatalError() }
 
     private func build() {
-        wantsLayer = true
-        layer?.cornerRadius = 0.0
-        layer?.borderWidth = 0
-        layer?.borderColor = NSColor.clear.cgColor
+        wantsLayer = true; layer?.cornerRadius = kRadius / 2; layer?.borderWidth = kBorderWidth; layer?.borderColor = kBorder.cgColor
         layer?.backgroundColor = NSColor.clear.cgColor
+        imageView.wantsLayer = true; imageView.layer?.cornerRadius = kRadius / 2; imageView.imageScaling = .scaleAxesIndependently; imageView.imageAlignment = .alignCenter
+        addSubview(imageView)
+    }
 
-        let folders = (1...36).map { $0 == 1 ? "CustomERPhotos" : "CustomERPhotos\($0)" }
+    override func layout() { super.layout(); imageView.frame = bounds }
+
+    private func loadPhoto() {
+        let dir = FileManager.default.urls(for: .picturesDirectory, in: .userDomainMask)[0].appendingPathComponent(folderName)
         let ext = ["jpg", "jpeg", "png", "heic", "webp"]
-        let baseDir = FileManager.default.urls(for: .picturesDirectory, in: .userDomainMask)[0]
-
-        for folder in folders {
-            let iv = NSImageView()
-            iv.wantsLayer = true
-            iv.layer?.cornerRadius = 0.0
-            iv.imageScaling = .scaleAxesIndependently
-            iv.imageAlignment = .alignCenter
-            
-            let dir = baseDir.appendingPathComponent(folder)
-            if let files = try? FileManager.default.contentsOfDirectory(at: dir, includingPropertiesForKeys: nil),
-               let photo = files.filter({ ext.contains($0.pathExtension.lowercased()) }).sorted(by: { $0.lastPathComponent < $1.lastPathComponent }).first,
-               let img = NSImage.downsampledImage(at: photo, targetSize: NSSize(width: 180, height: 180)) {
-                iv.image = img
-            }
-            addSubview(iv)
-            imageViews.append(iv)
-        }
-    }
-
-    override func layout() {
-        super.layout()
-        let w = bounds.width, h = bounds.height
-
-        let tileSize = min((w - 5 * 8) / 6, (h - 5 * 8) / 6)
-
-        var idx = 0
-        for row in 0..<6 {
-            for col in 0..<6 {
-                if idx < imageViews.count {
-                    let x = CGFloat(col) * (tileSize + 8)
-                    let y = CGFloat(5 - row) * (tileSize + 8)
-                    imageViews[idx].frame = NSRect(x: x, y: y, width: tileSize, height: tileSize)
-                    idx += 1
-                }
-            }
+        if let files = try? FileManager.default.contentsOfDirectory(at: dir, includingPropertiesForKeys: nil),
+           let firstPhoto = files.filter({ ext.contains($0.pathExtension.lowercased()) }).sorted(by: { $0.lastPathComponent < $1.lastPathComponent }).first,
+           let img = NSImage.downsampledImage(at: firstPhoto, targetSize: NSSize(width: 196, height: 196)) {
+            imageView.image = img
         }
     }
 
@@ -2116,271 +1860,10 @@ class AlbumCollageView: NSView {
         DispatchQueue.main.async {
             CATransaction.begin()
             CATransaction.setDisableActions(true)
-            self.layer?.backgroundColor = NSColor.clear.cgColor
-            self.layer?.cornerRadius = 0.0
-            self.layer?.borderColor = NSColor.clear.cgColor
-            self.layer?.borderWidth = 0
-            for iv in self.imageViews {
-                iv.layer?.cornerRadius = 0.0
-            }
-            CATransaction.commit()
-            self.needsDisplay = true
-        }
-    }
-
-    override func mouseDown(with event: NSEvent) { dragStart = NSEvent.mouseLocation; if let w = window { initialWinOrigin = w.frame.origin }; dragActive = true; window?.makeKey() }
-    override func mouseDragged(with event: NSEvent) {
-        guard dragActive, let w = window else { return }
-        let c = NSEvent.mouseLocation
-        w.setFrameOrigin(NSPoint(x: initialWinOrigin.x + (c.x - dragStart.x), y: initialWinOrigin.y + (c.y - dragStart.y)))
-    }
-    override func mouseUp(with event: NSEvent) {
-        dragActive = false
-        if let w = window { PositionManager.shared.savePosition(key: widgetKey, origin: w.frame.origin) }
-    }
-}
-
-// MARK: - 12. TIMETABLE WIDGET (tutotimetable - Native Vector Grid)
-class TimetableWidgetView: NSView {
-    let widgetKey = "timetable"
-    private let titleLabel = NSTextField()
-    private let cardView   = NSView()
-    private var dragStart: NSPoint = .zero, initialWinOrigin: NSPoint = .zero, dragActive = false
-
-    private let days = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday"]
-    private let headers = ["Day", "8.00-9.00", "9.00-10.00", "Break", "10.30-11.30", "11.30-12.30", "Lunch", "1.15-2.15", "2.15-3.15"]
-
-    // Schedule items: (startCol, span, subjectCode)
-    private let schedule: [String: [(startCol: Int, span: Int, code: String)]] = [
-        "Monday":    [(1, 1, "DBMS"), (2, 1, "SE"), (4, 2, "BD"), (7, 2, "DBMS LAB")],
-        "Tuesday":   [(1, 2, "DA"), (4, 1, "ML"), (5, 1, "DBMS")],
-        "Wednesday": [(1, 1, "ML"), (2, 1, "DBMS"), (4, 1, "SE"), (5, 1, "ML")],
-        "Thursday":  [(1, 2, "BD"), (4, 1, "DBMS"), (5, 1, "SE"), (7, 2, "ML LAB")],
-        "Friday":    [(1, 1, "SE"), (2, 1, "ML"), (4, 2, "DA")]
-    ]
-
-    override init(frame: NSRect) {
-        super.init(frame: frame)
-        build()
-        listenForThemeChanges()
-        setupDailyRefresh()
-    }
-    required init?(coder: NSCoder) { fatalError() }
-
-    private func setupDailyRefresh() {
-        // 1. Midnight day change system notification
-        NotificationCenter.default.addObserver(self, selector: #selector(onDayChanged), name: .NSCalendarDayChanged, object: nil)
-        
-        // 2. Opening/waking laptop lid from sleep system notification
-        NSWorkspace.shared.notificationCenter.addObserver(self, selector: #selector(onDayChanged), name: NSWorkspace.didWakeNotification, object: nil)
-    }
-
-    @objc private func onDayChanged() {
-        DispatchQueue.main.async {
-            self.renderGrid()
-        }
-    }
-
-    private func build() {
-        wantsLayer = true
-        layer?.cornerRadius = kRadius
-        layer?.borderWidth = kBorderWidth
-        layer?.borderColor = kBorder.cgColor
-        layer?.backgroundColor = ThemeManager.shared.currentBgColor.cgColor
-
-        titleLabel.stringValue = "TIMETABLE"
-        titleLabel.font = dynamicFont(size: 13, weight: .bold)
-        titleLabel.textColor = kText
-        titleLabel.isEditable = false
-        titleLabel.isBordered = false
-        titleLabel.backgroundColor = .clear
-        addSubview(titleLabel)
-
-        cardView.wantsLayer = true
-        cardView.layer?.cornerRadius = kRadius / 2
-        cardView.layer?.backgroundColor = kSurface.cgColor
-        cardView.layer?.borderWidth = kBorderWidth
-        cardView.layer?.borderColor = kBorder.cgColor
-        addSubview(cardView)
-
-        renderGrid()
-    }
-
-    private func getMergedItems(for dayName: String) -> [(startCol: Int, span: Int, code: String)] {
-        guard let items = schedule[dayName] else { return [] }
-        var result: [(startCol: Int, span: Int, code: String)] = []
-        for item in items {
-            if let last = result.last, last.code == item.code, last.startCol + last.span == item.startCol {
-                result[result.count - 1].span += item.span
-            } else {
-                result.append(item)
-            }
-        }
-        return result
-    }
-
-    private func colorForSubject(_ code: String) -> NSColor {
-        let isDark = ThemeManager.shared.currentPreset.name.lowercased().contains("dark") ||
-                     ThemeManager.shared.currentPreset.name.lowercased().contains("cyber") ||
-                     ThemeManager.shared.currentPreset.name.lowercased().contains("midnight")
-
-        switch code.uppercased() {
-        case "DBMS":
-            return isDark ? NSColor(calibratedRed: 0.22, green: 0.28, blue: 0.45, alpha: 0.9) : NSColor(calibratedRed: 0.85, green: 0.88, blue: 0.98, alpha: 0.85)
-        case "SE":
-            return isDark ? NSColor(calibratedRed: 0.18, green: 0.38, blue: 0.26, alpha: 0.9) : NSColor(calibratedRed: 0.84, green: 0.93, blue: 0.86, alpha: 0.85)
-        case "ML":
-            return isDark ? NSColor(calibratedRed: 0.35, green: 0.22, blue: 0.48, alpha: 0.9) : NSColor(calibratedRed: 0.92, green: 0.86, blue: 0.98, alpha: 0.85)
-        case "DA":
-            return isDark ? NSColor(calibratedRed: 0.45, green: 0.35, blue: 0.18, alpha: 0.9) : NSColor(calibratedRed: 0.98, green: 0.91, blue: 0.78, alpha: 0.85)
-        case "BD":
-            return isDark ? NSColor(calibratedRed: 0.45, green: 0.22, blue: 0.26, alpha: 0.9) : NSColor(calibratedRed: 0.98, green: 0.85, blue: 0.87, alpha: 0.85)
-        case "DBMS LAB":
-            return isDark ? NSColor(calibratedRed: 0.18, green: 0.38, blue: 0.45, alpha: 0.9) : NSColor(calibratedRed: 0.82, green: 0.92, blue: 0.98, alpha: 0.85)
-        case "ML LAB":
-            return isDark ? NSColor(calibratedRed: 0.45, green: 0.18, blue: 0.38, alpha: 0.9) : NSColor(calibratedRed: 0.97, green: 0.84, blue: 0.92, alpha: 0.85)
-        default:
-            return isDark ? kSurface.withAlphaComponent(0.6) : kBg.withAlphaComponent(0.45)
-        }
-    }
-
-    private func renderGrid() {
-        cardView.subviews.forEach { $0.removeFromSuperview() }
-
-        let boundsW = cardView.bounds.width > 0 ? cardView.bounds.width : 660
-        let boundsH = cardView.bounds.height > 0 ? cardView.bounds.height : 170
-
-        let numRows: CGFloat = 6
-        let rowH = boundsH / numRows
-
-        let weights: [CGFloat] = [1.1, 1.0, 1.0, 0.65, 1.0, 1.0, 0.65, 1.0, 1.0]
-        let totalWeight = weights.reduce(0, +)
-        var colX: [CGFloat] = [0]
-        for w in weights {
-            colX.append(colX.last! + (w / totalWeight) * boundsW)
-        }
-
-        let todayName = getTodayName()
-
-        // 1. Draw Header Row
-        for (i, hText) in headers.enumerated() {
-            let cellX = colX[i]
-            let cellW = colX[i+1] - cellX
-            let y = boundsH - rowH
-
-            let label = createLabel(text: hText, size: 9.0, weight: .bold, color: kText, align: .center)
-            label.frame = NSRect(x: cellX, y: y + (rowH - 18)/2, width: cellW, height: 18)
-            cardView.addSubview(label)
-        }
-
-        // Horizontal line under header
-        let hDiv = NSView(frame: NSRect(x: 0, y: boundsH - rowH, width: boundsW, height: 1))
-        hDiv.wantsLayer = true
-        hDiv.layer?.backgroundColor = kBorder.cgColor
-        cardView.addSubview(hDiv)
-
-        // 2. Draw Breaks (Short Break col 3 & Lunch Break col 6)
-        let breakCols = [3, 6]
-        for colIdx in breakCols {
-            let bx1 = colX[colIdx]
-            let bw = colX[colIdx + 1] - bx1
-            let breakBg = NSView(frame: NSRect(x: bx1, y: 0, width: bw, height: boundsH - rowH))
-            breakBg.wantsLayer = true
-            breakBg.layer?.backgroundColor = kDim.withAlphaComponent(0.08).cgColor
-            cardView.addSubview(breakBg)
-        }
-
-        // 3. Draw Days and Classes
-        for (rowIdx, dayName) in days.enumerated() {
-            let y = boundsH - CGFloat(rowIdx + 2) * rowH
-            let isToday = (dayName == todayName)
-
-            if isToday {
-                let rowHighlight = NSView(frame: NSRect(x: 0, y: y, width: boundsW, height: rowH))
-                rowHighlight.wantsLayer = true
-                rowHighlight.layer?.backgroundColor = kAccent.withAlphaComponent(0.15).cgColor
-                cardView.addSubview(rowHighlight)
-            }
-
-            let dayX = colX[0]
-            let dayW = colX[1] - dayX
-            let dLabel = createLabel(text: dayName, size: 10, weight: isToday ? .black : .bold, color: isToday ? kAccent : kText, align: .center)
-            dLabel.frame = NSRect(x: dayX + 2, y: y + (rowH - 16)/2, width: dayW - 4, height: 16)
-            cardView.addSubview(dLabel)
-
-            let items = getMergedItems(for: dayName)
-            for item in items {
-                let cx1 = colX[item.startCol]
-                let cx2 = colX[item.startCol + item.span]
-                let cw = cx2 - cx1
-
-                let cellBox = NSView(frame: NSRect(x: cx1 + 2, y: y + 2, width: cw - 4, height: rowH - 4))
-                cellBox.wantsLayer = true
-                cellBox.layer?.cornerRadius = 4.0
-                cellBox.layer?.borderWidth = 1.0
-                cellBox.layer?.borderColor = kBorder.withAlphaComponent(0.5).cgColor
-                cellBox.layer?.backgroundColor = colorForSubject(item.code).cgColor
-
-                let cLabel = createLabel(text: item.code, size: item.span > 1 ? 11 : 10, weight: .bold, color: kText, align: .center)
-                cLabel.frame = NSRect(x: 0, y: (rowH - 4 - 16)/2, width: cw - 4, height: 16)
-                cellBox.addSubview(cLabel)
-
-                cardView.addSubview(cellBox)
-            }
-
-            if rowIdx < days.count - 1 {
-                let rDiv = NSView(frame: NSRect(x: 0, y: y, width: boundsW, height: 1))
-                rDiv.wantsLayer = true
-                rDiv.layer?.backgroundColor = kBorder.withAlphaComponent(0.20).cgColor
-                cardView.addSubview(rDiv)
-            }
-        }
-    }
-
-    private func createLabel(text: String, size: CGFloat, weight: NSFont.Weight, color: NSColor, align: NSTextAlignment) -> NSTextField {
-        let tf = NSTextField()
-        tf.stringValue = text
-        tf.font = dynamicFont(size: size, weight: weight)
-        tf.textColor = color
-        tf.alignment = align
-        tf.isEditable = false
-        tf.isBordered = false
-        tf.backgroundColor = .clear
-        tf.cell?.usesSingleLineMode = true
-        tf.cell?.lineBreakMode = .byClipping
-        return tf
-    }
-
-    private func getTodayName() -> String {
-        let fmt = DateFormatter()
-        fmt.dateFormat = "EEEE"
-        return fmt.string(from: Date())
-    }
-
-    override func layout() {
-        super.layout()
-        let w = bounds.width, h = bounds.height
-        titleLabel.frame = NSRect(x: 14, y: h - 26, width: 200, height: 18)
-        cardView.frame   = NSRect(x: 10, y: 10, width: w - 20, height: h - 36)
-        renderGrid()
-    }
-
-    private func listenForThemeChanges() { DistributedNotificationCenter.default().addObserver(self, selector: #selector(onThemeChanged), name: ThemeManager.notifName, object: nil) }
-    @objc private func onThemeChanged() {
-        DispatchQueue.main.async {
-            CATransaction.begin()
-            CATransaction.setDisableActions(true)
-            let p = ThemeManager.shared.currentPreset
-            self.layer?.backgroundColor = p.bgColor.cgColor
-            self.layer?.cornerRadius = p.cornerRadius
-            self.layer?.borderColor = NSColor.clear.cgColor
-            self.layer?.borderWidth = 0
-            self.cardView.layer?.cornerRadius = p.cornerRadius / 2
-            self.cardView.layer?.backgroundColor = p.surfaceColor.cgColor
-            self.cardView.layer?.borderColor = p.borderColor.cgColor
-            self.cardView.layer?.borderWidth = p.borderWidth
-            self.titleLabel.textColor = p.textColor
-            self.renderGrid()
+            self.layer?.cornerRadius = kRadius / 2
+            self.layer?.borderColor = kBorder.cgColor
+            self.layer?.borderWidth = kBorderWidth
+            self.imageView.layer?.cornerRadius = kRadius / 2
             CATransaction.commit()
             self.needsDisplay = true
         }
@@ -2426,6 +1909,11 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         let clockOrigin = PositionManager.shared.getPosition(key: "digital_clock", defaultOrigin: defaultClockRect.origin)
         addWindow(rect: NSRect(origin: clockOrigin, size: defaultClockRect.size), view: DigitalClockView(frame: NSRect(origin: clockOrigin, size: defaultClockRect.size)))
 
+        // 5. Color Picker
+        let defaultColorRect = NSRect(x: 320, y: 830, width: 280, height: 80)
+        let colorOrigin = PositionManager.shared.getPosition(key: "color_picker", defaultOrigin: defaultColorRect.origin)
+        addWindow(rect: NSRect(origin: colorOrigin, size: defaultColorRect.size), view: ColorPickerView(frame: NSRect(origin: colorOrigin, size: defaultColorRect.size)))
+
         // 6. Circular Analog Clock
         let defaultAnalogRect = NSRect(x: 613, y: 827, width: 220, height: 220)
         let analogOrigin = PositionManager.shared.getPosition(key: "analog_clock", defaultOrigin: defaultAnalogRect.origin)
@@ -2451,15 +1939,29 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         let mailOrigin = PositionManager.shared.getPosition(key: "mail", defaultOrigin: defaultMailRect.origin)
         addWindow(rect: NSRect(origin: mailOrigin, size: defaultMailRect.size), view: MailView(frame: NSRect(origin: mailOrigin, size: defaultMailRect.size)))
 
-        // 11. Timetable Vector Widget (tutotimetable - Wide Format)
-        let defaultTTRect = NSRect(x: 320, y: 440, width: 680, height: 220)
-        let ttOrigin = PositionManager.shared.getPosition(key: "timetable", defaultOrigin: defaultTTRect.origin)
-        addWindow(rect: NSRect(origin: ttOrigin, size: defaultTTRect.size), view: TimetableWidgetView(frame: NSRect(origin: ttOrigin, size: defaultTTRect.size)))
+        // 11. 13 Photo Slots
+        let photoSlots: [PhotoSlot] = [
+            PhotoSlot(id: 1,  folderName: "CustomERPhotos",   rect: NSRect(x: 30,   y: 480, width: 110, height: 110)),
+            PhotoSlot(id: 2,  folderName: "CustomERPhotos2",  rect: NSRect(x: 145,  y: 480, width: 110, height: 110)),
+            PhotoSlot(id: 3,  folderName: "CustomERPhotos3",  rect: NSRect(x: 260,  y: 480, width: 110, height: 110)),
+            PhotoSlot(id: 4,  folderName: "CustomERPhotos4",  rect: NSRect(x: 375,  y: 480, width: 110, height: 110)),
+            PhotoSlot(id: 5,  folderName: "CustomERPhotos5",  rect: NSRect(x: 490,  y: 480, width: 110, height: 110)),
+            PhotoSlot(id: 6,  folderName: "CustomERPhotos6",  rect: NSRect(x: 605,  y: 480, width: 110, height: 110)),
+            PhotoSlot(id: 7,  folderName: "CustomERPhotos7",  rect: NSRect(x: 720,  y: 480, width: 110, height: 110)),
+            PhotoSlot(id: 8,  folderName: "CustomERPhotos8",  rect: NSRect(x: 835,  y: 480, width: 110, height: 110)),
+            PhotoSlot(id: 9,  folderName: "CustomERPhotos9",  rect: NSRect(x: 950,  y: 480, width: 110, height: 110)),
+            PhotoSlot(id: 10, folderName: "CustomERPhotos10", rect: NSRect(x: 1065, y: 480, width: 110, height: 110)),
+            PhotoSlot(id: 11, folderName: "CustomERPhotos11", rect: NSRect(x: 1180, y: 480, width: 110, height: 110)),
+            PhotoSlot(id: 12, folderName: "CustomERPhotos12", rect: NSRect(x: 1295, y: 480, width: 110, height: 110)),
+            PhotoSlot(id: 13, folderName: "CustomERPhotos13", rect: NSRect(x: 1410, y: 480, width: 110, height: 110))
+        ]
 
-        // 12. 6x6 Album Collage Widget
-        let defaultCollageRect = NSRect(x: 1050, y: 80, width: 640, height: 640)
-        let collageOrigin = PositionManager.shared.getPosition(key: "album_collage", defaultOrigin: defaultCollageRect.origin)
-        addWindow(rect: NSRect(origin: collageOrigin, size: defaultCollageRect.size), view: AlbumCollageView(frame: NSRect(origin: collageOrigin, size: defaultCollageRect.size)))
+        for slot in photoSlots {
+            let key = "photo_\(slot.id)"
+            let origin = PositionManager.shared.getPosition(key: key, defaultOrigin: slot.rect.origin)
+            let winRect = NSRect(origin: origin, size: slot.rect.size)
+            addWindow(rect: winRect, view: PhotosView(frame: winRect, folderName: slot.folderName, slotId: slot.id))
+        }
     }
 
     private func addWindow(rect: NSRect, view: NSView) {
@@ -2467,8 +1969,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         win.isOpaque = false
         win.backgroundColor = .clear
         win.level = NSWindow.Level(rawValue: -1)
-        win.collectionBehavior = [.canJoinAllSpaces, .ignoresCycle]
-        win.isMovableByWindowBackground = true
+        win.collectionBehavior = [.canJoinAllSpaces, .stationary, .ignoresCycle]
         win.hasShadow = false
         win.contentView = view
         win.makeKeyAndOrderFront(nil)
