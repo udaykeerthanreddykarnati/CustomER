@@ -2,6 +2,7 @@ import AppKit
 import Foundation
 import IOKit.pwr_mgt
 import IOKit.ps
+import Carbon
 
 // MARK: - Global Theme Presets (Dynamic Colors, Fonts & Shapes)
 enum ThemePreset: String {
@@ -2182,9 +2183,401 @@ class TimetableWidgetView: NSView {
     }
 }
 
-// MARK: - MASTER APP DELEGATE
+// MARK: - CENTER WALLPAPER EXPANSION TRANSITION MANAGER
+class CenterWallpaperTransitionManager {
+    static let shared = CenterWallpaperTransitionManager()
+    private var transitionWindow: NSWindow?
+    private var transitionImageView: NSImageView?
+    private var isAnimating = false
+
+    func animateAndSetWallpaper(url: URL, completion: (() -> Void)? = nil) {
+        guard !isAnimating, let screen = NSScreen.main else {
+            completion?()
+            return
+        }
+        isAnimating = true
+        let screenFrame = screen.frame
+
+        DispatchQueue.global(qos: .userInitiated).async {
+            guard let img = NSImage(contentsOf: url) else {
+                self.setNativeWallpaper(url: url) {
+                    DispatchQueue.main.async {
+                        self.isAnimating = false
+                        completion?()
+                    }
+                }
+                return
+            }
+
+            DispatchQueue.main.async {
+                self.runCenterExpandAnimation(url: url, img: img, screenFrame: screenFrame, completion: completion)
+            }
+        }
+    }
+
+    private func runCenterExpandAnimation(url: URL, img: NSImage, screenFrame: NSRect, completion: (() -> Void)?) {
+        if transitionWindow == nil {
+            let win = NSWindow(contentRect: screenFrame,
+                               styleMask: [.borderless],
+                               backing: .buffered,
+                               defer: false)
+            win.isOpaque = false
+            win.backgroundColor = .clear
+            win.level = NSWindow.Level(rawValue: Int(CGWindowLevelForKey(.desktopWindow)) + 1)
+            win.collectionBehavior = [.canJoinAllSpaces, .stationary, .ignoresCycle]
+            win.ignoresMouseEvents = true
+
+            let iv = NSImageView(frame: screenFrame)
+            iv.imageScaling = .scaleAxesIndependently
+            iv.wantsLayer = true
+            win.contentView = iv
+
+            self.transitionWindow = win
+            self.transitionImageView = iv
+        }
+
+        guard let win = transitionWindow, let iv = transitionImageView else {
+            isAnimating = false
+            completion?()
+            return
+        }
+
+        win.setFrame(screenFrame, display: false)
+
+        let midX = screenFrame.midX
+        let midY = screenFrame.midY
+        let startW: CGFloat = 180
+        let startH: CGFloat = 112
+        let startFrame = NSRect(x: midX - startW / 2, y: midY - startH / 2, width: startW, height: startH)
+
+        iv.image = img
+        iv.alphaValue = 0.0
+        iv.frame = startFrame
+        iv.layer?.cornerRadius = 20
+        iv.layer?.masksToBounds = true
+        iv.layer?.borderColor = NSColor.white.withAlphaComponent(0.4).cgColor
+        iv.layer?.borderWidth = 2.0
+
+        win.orderFrontRegardless()
+        win.display()
+
+        // Close picker window right as center expand begins
+        completion?()
+
+        // 1. Smoothly expand center card from screen middle to full screen (0.35s).
+        // Native wallpaper set is NOT called yet, so desktop underneath remains 100% static.
+        NSAnimationContext.runAnimationGroup({ ctx in
+            ctx.duration = 0.35
+            ctx.timingFunction = CAMediaTimingFunction(name: .easeOut)
+            iv.animator().frame = screenFrame
+            iv.animator().layer?.cornerRadius = 0
+            iv.animator().layer?.borderWidth = 0
+            iv.animator().alphaValue = 1.0
+        }, completionHandler: {
+            // 2. NOW that overlay covers 100% of the screen, set native desktop wallpaper underneath
+            self.setNativeWallpaper(url: url) {
+                // Give WindowServer 0.45s to complete compositing native desktop
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.45) {
+                    // 3. Slowly & smoothly cross-fade overlay out (0.65s) to reveal updated native desktop
+                    NSAnimationContext.runAnimationGroup({ ctx in
+                        ctx.duration = 0.65
+                        ctx.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
+                        iv.animator().alphaValue = 0.0
+                    }, completionHandler: {
+                        win.orderOut(nil)
+                        self.isAnimating = false
+                    })
+                }
+            }
+        })
+    }
+
+    private func setNativeWallpaper(url: URL, completion: (() -> Void)? = nil) {
+        DispatchQueue.global(qos: .userInitiated).async {
+            for screen in NSScreen.screens {
+                try? NSWorkspace.shared.setDesktopImageURL(url, for: screen, options: [:])
+            }
+            completion?()
+        }
+    }
+}
+
+// MARK: - 13. WALLPAPER SWITCHER WIDGET (tutuwallpaper)
+class WallpaperPickerView: NSView {
+    let widgetKey = "wallpaper_switcher"
+
+    private let titleLabel       = NSTextField()
+    private let pathLabel        = NSTextField()
+    private let chooseFolderBtn  = NSButton()
+    private let randomBtn        = NSButton()
+
+    private let scrollView       = NSScrollView()
+    private let contentView      = NSView()
+
+    private var wallpaperFolderURL: URL = {
+        if let savedPath = UserDefaults.standard.string(forKey: "customER_wallpaper_folder"),
+           FileManager.default.fileExists(atPath: savedPath) {
+            return URL(fileURLWithPath: savedPath)
+        }
+        let mywallPath = "/Users/udayk/Pictures/mywall"
+        if FileManager.default.fileExists(atPath: mywallPath) {
+            return URL(fileURLWithPath: mywallPath)
+        }
+        return FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Pictures")
+    }()
+
+    private var imageURLs: [URL] = []
+    private var activeWallpaperURL: URL?
+    private let thumbnailCache = NSCache<NSURL, NSImage>()
+
+    private var dragStart: NSPoint = .zero, initialWinOrigin: NSPoint = .zero, dragActive = false
+
+    override init(frame: NSRect) {
+        super.init(frame: frame)
+        build()
+        loadWallpapers()
+        listenForThemeChanges()
+    }
+    required init?(coder: NSCoder) { fatalError() }
+
+    private func build() {
+        wantsLayer = true
+        layer?.cornerRadius = kRadius
+        layer?.borderWidth = 0
+        layer?.borderColor = NSColor.clear.cgColor
+        layer?.backgroundColor = ThemeManager.shared.currentBgColor.cgColor
+
+        titleLabel.stringValue = "WALLPAPER SWITCHER"
+        titleLabel.font = dynamicFont(size: 13, weight: .bold)
+        titleLabel.textColor = kText
+        titleLabel.isEditable = false; titleLabel.isBordered = false; titleLabel.backgroundColor = .clear
+        addSubview(titleLabel)
+
+        pathLabel.stringValue = ""
+        pathLabel.font = dynamicFont(size: 10, weight: .bold)
+        pathLabel.textColor = kDim
+        pathLabel.alignment = .right
+        pathLabel.lineBreakMode = .byTruncatingHead
+        pathLabel.isEditable = false; pathLabel.isBordered = false; pathLabel.backgroundColor = .clear
+        addSubview(pathLabel)
+
+        setupBtn(chooseFolderBtn, title: "📁 Choose Folder", action: #selector(onChooseFolder))
+        setupBtn(randomBtn, title: "🎲 Random", action: #selector(onRandomWallpaper))
+
+        scrollView.hasVerticalScroller = true
+        scrollView.drawsBackground = false
+        scrollView.wantsLayer = true
+        scrollView.layer?.cornerRadius = kRadius / 2
+        scrollView.layer?.backgroundColor = kSurface.cgColor
+        scrollView.layer?.borderWidth = kBorderWidth
+        scrollView.layer?.borderColor = kBorder.cgColor
+
+        contentView.wantsLayer = true
+        contentView.layer?.backgroundColor = NSColor.clear.cgColor
+        scrollView.documentView = contentView
+        addSubview(scrollView)
+    }
+
+    private func setupBtn(_ btn: NSButton, title: String, action: Selector) {
+        btn.title = title
+        btn.font = dynamicFont(size: 10, weight: .bold)
+        btn.isBordered = false; btn.wantsLayer = true; btn.layer?.cornerRadius = kRadius / 2
+        btn.layer?.backgroundColor = kAccent.cgColor; btn.layer?.borderWidth = kBorderWidth; btn.layer?.borderColor = kBorder.cgColor
+        btn.contentTintColor = (ThemeManager.shared.currentPreset == .glass || ThemeManager.shared.currentPreset == .childish) ? .white : kSurface
+        btn.target = self; btn.action = action; addSubview(btn)
+    }
+
+    private var lastRenderedBoundsSize: NSSize = .zero
+    private var lastRenderedURLsCount: Int = 0
+
+    override func layout() {
+        super.layout()
+        let w = bounds.width, h = bounds.height
+        titleLabel.frame = NSRect(x: 12, y: h - 28, width: 180, height: 18)
+        pathLabel.frame = NSRect(x: 200, y: h - 28, width: w - 212, height: 18)
+
+        let btnW: CGFloat = 120, btnH: CGFloat = 24
+        chooseFolderBtn.frame = NSRect(x: 12, y: h - 58, width: btnW, height: btnH)
+        randomBtn.frame = NSRect(x: 12 + btnW + 8, y: h - 58, width: 90, height: btnH)
+
+        let scrollY: CGFloat = 12
+        let scrollH = h - 58 - 12 - 8
+        scrollView.frame = NSRect(x: 12, y: scrollY, width: w - 24, height: scrollH)
+
+        if bounds.size != lastRenderedBoundsSize || imageURLs.count != lastRenderedURLsCount {
+            lastRenderedBoundsSize = bounds.size
+            lastRenderedURLsCount = imageURLs.count
+            renderGrid()
+        }
+    }
+
+    private func loadWallpapers() {
+        if let screen = NSScreen.main {
+            activeWallpaperURL = NSWorkspace.shared.desktopImageURL(for: screen)
+        }
+        let exts = Set(["jpg", "jpeg", "png", "heic", "webp", "avif"])
+        if let files = try? FileManager.default.contentsOfDirectory(at: wallpaperFolderURL, includingPropertiesForKeys: nil, options: [.skipsHiddenFiles]) {
+            imageURLs = files.filter { exts.contains($0.pathExtension.lowercased()) }.sorted(by: { $0.lastPathComponent < $1.lastPathComponent })
+        } else {
+            imageURLs = []
+        }
+        pathLabel.stringValue = "📁 \(wallpaperFolderURL.lastPathComponent) (\(imageURLs.count) wallpapers)"
+        renderGrid()
+    }
+
+    private func renderGrid() {
+        for sub in contentView.subviews { sub.removeFromSuperview() }
+        let gridW = scrollView.bounds.width > 0 ? scrollView.bounds.width - 16 : 640.0
+        let itemW: CGFloat = 150, itemH: CGFloat = 95, gap: CGFloat = 10
+        let cols = max(1, Int((gridW + gap) / (itemW + gap)))
+        let rows = Int(ceil(Double(imageURLs.count) / Double(cols)))
+
+        let contentH = max(scrollView.bounds.height, CGFloat(rows) * (itemH + gap) + gap)
+        contentView.frame = NSRect(x: 0, y: 0, width: gridW, height: contentH)
+
+        for (idx, url) in imageURLs.enumerated() {
+            let r = idx / cols
+            let c = idx % cols
+            let x = gap + CGFloat(c) * (itemW + gap)
+            let y = contentH - CGFloat(r + 1) * (itemH + gap)
+
+            let card = NSButton(frame: NSRect(x: x, y: y, width: itemW, height: itemH))
+            card.title = ""
+            card.isBordered = false; card.wantsLayer = true; card.layer?.cornerRadius = kRadius / 2
+            card.layer?.masksToBounds = true; card.layer?.backgroundColor = kSurface.cgColor
+
+            let isCurrent = (url.path == activeWallpaperURL?.path)
+            card.layer?.borderWidth = isCurrent ? 3.0 : kBorderWidth
+            card.layer?.borderColor = isCurrent ? kAccent.cgColor : kBorder.cgColor
+
+            let iv = NSImageView(frame: NSRect(x: 0, y: 0, width: itemW, height: itemH))
+            iv.imageScaling = .scaleAxesIndependently
+            card.addSubview(iv)
+
+            let nsURL = url as NSURL
+            if let cached = thumbnailCache.object(forKey: nsURL) {
+                iv.image = cached
+            } else {
+                DispatchQueue.global(qos: .userInitiated).async { [weak self, weak iv] in
+                    if let img = NSImage.downsampledImage(at: url, targetSize: NSSize(width: itemW * 1.5, height: itemH * 1.5)) {
+                        self?.thumbnailCache.setObject(img, forKey: nsURL)
+                        DispatchQueue.main.async { iv?.image = img }
+                    }
+                }
+            }
+
+            if isCurrent {
+                let activeBadge = NSTextField(frame: NSRect(x: 6, y: itemH - 20, width: 54, height: 14))
+                activeBadge.stringValue = "ACTIVE"
+                activeBadge.font = dynamicFont(size: 8, weight: .bold)
+                activeBadge.textColor = .white; activeBadge.alignment = .center
+                activeBadge.isEditable = false; activeBadge.isBordered = false; activeBadge.wantsLayer = true
+                activeBadge.layer?.cornerRadius = 3; activeBadge.layer?.backgroundColor = kAccent.cgColor
+                card.addSubview(activeBadge)
+            }
+
+            card.tag = idx
+            card.target = self
+            card.action = #selector(onWallpaperSelected(_:))
+            contentView.addSubview(card)
+        }
+    }
+
+    @objc private func onWallpaperSelected(_ sender: NSButton) {
+        guard sender.tag >= 0, sender.tag < imageURLs.count else { return }
+        let url = imageURLs[sender.tag]
+        activeWallpaperURL = url
+        let win = self.window
+        CenterWallpaperTransitionManager.shared.animateAndSetWallpaper(url: url) {
+            win?.orderOut(nil)
+        }
+    }
+
+    @objc private func onRandomWallpaper() {
+        guard !imageURLs.isEmpty else { return }
+        let url = imageURLs[Int.random(in: 0..<imageURLs.count)]
+        activeWallpaperURL = url
+        let win = self.window
+        CenterWallpaperTransitionManager.shared.animateAndSetWallpaper(url: url) {
+            win?.orderOut(nil)
+        }
+    }
+
+    @objc private func onChooseFolder() {
+        let panel = NSOpenPanel()
+        panel.canChooseFiles = false
+        panel.canChooseDirectories = true
+        panel.allowsMultipleSelection = false
+        panel.prompt = "Select Wallpaper Folder"
+        panel.directoryURL = wallpaperFolderURL
+
+        panel.begin { [weak self] result in
+            if result == .OK, let selectedURL = panel.url {
+                self?.wallpaperFolderURL = selectedURL
+                UserDefaults.standard.set(selectedURL.path, forKey: "customER_wallpaper_folder")
+                self?.loadWallpapers()
+            }
+        }
+    }
+
+    private func listenForThemeChanges() {
+        DistributedNotificationCenter.default().addObserver(self, selector: #selector(onThemeChanged), name: ThemeManager.notifName, object: nil)
+    }
+
+    @objc private func onThemeChanged() {
+        DispatchQueue.main.async {
+            CATransaction.begin()
+            CATransaction.setDisableActions(true)
+            let p = ThemeManager.shared.currentPreset
+            self.layer?.backgroundColor = p.bgColor.cgColor
+            self.layer?.cornerRadius = p.cornerRadius
+            self.layer?.borderColor = NSColor.clear.cgColor
+            self.layer?.borderWidth = 0
+            self.scrollView.layer?.cornerRadius = p.cornerRadius / 2
+            self.scrollView.layer?.backgroundColor = p.surfaceColor.cgColor
+            self.scrollView.layer?.borderColor = p.borderColor.cgColor
+            self.scrollView.layer?.borderWidth = p.borderWidth
+            for btn in [self.chooseFolderBtn, self.randomBtn] {
+                btn.layer?.cornerRadius = p.cornerRadius / 2
+                btn.layer?.backgroundColor = p.accentColor.cgColor
+                btn.layer?.borderColor = p.borderColor.cgColor
+                btn.layer?.borderWidth = p.borderWidth
+            }
+            self.updateThemeRecursively(preset: p)
+            self.renderGrid()
+            CATransaction.commit()
+            self.needsDisplay = true
+        }
+    }
+
+    override func mouseDown(with event: NSEvent) {
+        let point = convert(event.locationInWindow, from: nil)
+        if let hitView = hitTest(point), hitView is NSButton {
+            super.mouseDown(with: event)
+            return
+        }
+        dragStart = NSEvent.mouseLocation
+        if let w = window { initialWinOrigin = w.frame.origin }
+        dragActive = true
+        window?.makeKey()
+    }
+
+    override func mouseDragged(with event: NSEvent) {
+        guard dragActive, let w = window else { return }
+        let c = NSEvent.mouseLocation
+        w.setFrameOrigin(NSPoint(x: initialWinOrigin.x + (c.x - dragStart.x), y: initialWinOrigin.y + (c.y - dragStart.y)))
+    }
+
+    override func mouseUp(with event: NSEvent) {
+        dragActive = false
+        if let w = window { PositionManager.shared.savePosition(key: widgetKey, origin: w.frame.origin) }
+    }
+}
+
 class AppDelegate: NSObject, NSApplicationDelegate {
     var windows: [NSWindow] = []
+    var wallpaperWindow: NSWindow?
+    private var hotKeyRef: EventHotKeyRef?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         // Sync Desktop Folder Icons with Widget Theme
@@ -2193,57 +2586,90 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         // 1. Reminders (tututodo)
         let defaultTodoRect = NSRect(x: 24, y: 600, width: 280, height: 440)
         let todoOrigin = PositionManager.shared.getPosition(key: "reminders", defaultOrigin: defaultTodoRect.origin)
-        addWindow(rect: NSRect(origin: todoOrigin, size: defaultTodoRect.size), view: TodoView(frame: NSRect(origin: todoOrigin, size: defaultTodoRect.size)))
+        _ = addWindow(rect: NSRect(origin: todoOrigin, size: defaultTodoRect.size), view: TodoView(frame: NSRect(origin: todoOrigin, size: defaultTodoRect.size)))
 
         // 2. Calendar
         let defaultCalRect = NSRect(x: 24, y: 350, width: 280, height: 230)
         let calOrigin = PositionManager.shared.getPosition(key: "calendar", defaultOrigin: defaultCalRect.origin)
-        addWindow(rect: NSRect(origin: calOrigin, size: defaultCalRect.size), view: CalendarView(frame: NSRect(origin: calOrigin, size: defaultCalRect.size)))
+        _ = addWindow(rect: NSRect(origin: calOrigin, size: defaultCalRect.size), view: CalendarView(frame: NSRect(origin: calOrigin, size: defaultCalRect.size)))
 
         // 3. Battery
         let defaultBatRect = NSRect(x: 24, y: 50, width: 280, height: 280)
         let batOrigin = PositionManager.shared.getPosition(key: "battery", defaultOrigin: defaultBatRect.origin)
-        addWindow(rect: NSRect(origin: batOrigin, size: defaultBatRect.size), view: BatteryView(frame: NSRect(origin: batOrigin, size: defaultBatRect.size)))
+        _ = addWindow(rect: NSRect(origin: batOrigin, size: defaultBatRect.size), view: BatteryView(frame: NSRect(origin: batOrigin, size: defaultBatRect.size)))
 
         // 4. Digital Clock
         let defaultClockRect = NSRect(x: 320, y: 930, width: 280, height: 110)
         let clockOrigin = PositionManager.shared.getPosition(key: "digital_clock", defaultOrigin: defaultClockRect.origin)
-        addWindow(rect: NSRect(origin: clockOrigin, size: defaultClockRect.size), view: DigitalClockView(frame: NSRect(origin: clockOrigin, size: defaultClockRect.size)))
+        _ = addWindow(rect: NSRect(origin: clockOrigin, size: defaultClockRect.size), view: DigitalClockView(frame: NSRect(origin: clockOrigin, size: defaultClockRect.size)))
 
         // 6. Circular Analog Clock
         let defaultAnalogRect = NSRect(x: 613, y: 827, width: 220, height: 220)
         let analogOrigin = PositionManager.shared.getPosition(key: "analog_clock", defaultOrigin: defaultAnalogRect.origin)
-        addWindow(rect: NSRect(origin: analogOrigin, size: defaultAnalogRect.size), view: AnalogClockView(frame: NSRect(origin: analogOrigin, size: defaultAnalogRect.size)))
+        _ = addWindow(rect: NSRect(origin: analogOrigin, size: defaultAnalogRect.size), view: AnalogClockView(frame: NSRect(origin: analogOrigin, size: defaultAnalogRect.size)))
 
         // 7. Spotify Player
         let defaultSpotRect = NSRect(x: 872, y: 905, width: 280, height: 130)
         let spotOrigin = PositionManager.shared.getPosition(key: "spotify", defaultOrigin: defaultSpotRect.origin)
-        addWindow(rect: NSRect(origin: spotOrigin, size: defaultSpotRect.size), view: SpotifyView(frame: NSRect(origin: spotOrigin, size: defaultSpotRect.size)))
+        _ = addWindow(rect: NSRect(origin: spotOrigin, size: defaultSpotRect.size), view: SpotifyView(frame: NSRect(origin: spotOrigin, size: defaultSpotRect.size)))
 
         // 8. Roblox Dance GIF
         let defaultGifRect = NSRect(x: 268, y: 694, width: 196, height: 196)
         let gifOrigin = PositionManager.shared.getPosition(key: "gif", defaultOrigin: defaultGifRect.origin)
-        addWindow(rect: NSRect(origin: gifOrigin, size: defaultGifRect.size), view: GifView(frame: NSRect(origin: gifOrigin, size: defaultGifRect.size)))
-
-
+        _ = addWindow(rect: NSRect(origin: gifOrigin, size: defaultGifRect.size), view: GifView(frame: NSRect(origin: gifOrigin, size: defaultGifRect.size)))
 
         // 10. Apple Mail Unread Widget
         let defaultMailRect = NSRect(x: 320, y: 165, width: 280, height: 110)
         let mailOrigin = PositionManager.shared.getPosition(key: "mail", defaultOrigin: defaultMailRect.origin)
-        addWindow(rect: NSRect(origin: mailOrigin, size: defaultMailRect.size), view: MailView(frame: NSRect(origin: mailOrigin, size: defaultMailRect.size)))
+        _ = addWindow(rect: NSRect(origin: mailOrigin, size: defaultMailRect.size), view: MailView(frame: NSRect(origin: mailOrigin, size: defaultMailRect.size)))
 
         // 11. Timetable Vector Widget (tutotimetable - Wide Format)
         let defaultTTRect = NSRect(x: 320, y: 440, width: 680, height: 220)
         let ttOrigin = PositionManager.shared.getPosition(key: "timetable", defaultOrigin: defaultTTRect.origin)
-        addWindow(rect: NSRect(origin: ttOrigin, size: defaultTTRect.size), view: TimetableWidgetView(frame: NSRect(origin: ttOrigin, size: defaultTTRect.size)))
+        _ = addWindow(rect: NSRect(origin: ttOrigin, size: defaultTTRect.size), view: TimetableWidgetView(frame: NSRect(origin: ttOrigin, size: defaultTTRect.size)))
 
         // 12. 6x6 Album Collage Widget
         let defaultCollageRect = NSRect(x: 1050, y: 80, width: 640, height: 640)
         let collageOrigin = PositionManager.shared.getPosition(key: "album_collage", defaultOrigin: defaultCollageRect.origin)
-        addWindow(rect: NSRect(origin: collageOrigin, size: defaultCollageRect.size), view: AlbumCollageView(frame: NSRect(origin: collageOrigin, size: defaultCollageRect.size)))
+        _ = addWindow(rect: NSRect(origin: collageOrigin, size: defaultCollageRect.size), view: AlbumCollageView(frame: NSRect(origin: collageOrigin, size: defaultCollageRect.size)))
+
+        // 13. Wallpaper Switcher Widget (tutuwallpaper)
+        let defaultWallRect = NSRect(x: 320, y: 300, width: 680, height: 420)
+        let wallOrigin = PositionManager.shared.getPosition(key: "wallpaper_switcher", defaultOrigin: defaultWallRect.origin)
+        let wallWin = addWindow(rect: NSRect(origin: wallOrigin, size: defaultWallRect.size), view: WallpaperPickerView(frame: NSRect(origin: wallOrigin, size: defaultWallRect.size)))
+        wallpaperWindow = wallWin
+        setupWallpaperHotkey()
     }
 
-    private func addWindow(rect: NSRect, view: NSView) {
+    private func setupWallpaperHotkey() {
+        let hotKeyID = EventHotKeyID(signature: OSType(0x57414C4C), id: 1)
+        var eventType = EventTypeSpec(eventClass: OSType(kEventClassKeyboard), eventKind: UInt32(kEventHotKeyPressed))
+        
+        InstallEventHandler(GetApplicationEventTarget(), { (_, eventRef, userPtr) -> OSStatus in
+            guard let ptr = userPtr else { return noErr }
+            let appDelegate = Unmanaged<AppDelegate>.fromOpaque(ptr).takeUnretainedValue()
+            DispatchQueue.main.async {
+                appDelegate.toggleWallpaperWindow()
+            }
+            return noErr
+        }, 1, &eventType, Unmanaged.passUnretained(self).toOpaque(), nil)
+
+        RegisterEventHotKey(13, UInt32(optionKey), hotKeyID, GetApplicationEventTarget(), 0, &hotKeyRef)
+    }
+
+    func toggleWallpaperWindow() {
+        guard let win = wallpaperWindow else { return }
+        if win.isVisible {
+            win.orderOut(nil)
+        } else {
+            win.level = .floating
+            win.makeKeyAndOrderFront(nil)
+            NSApp.activate(ignoringOtherApps: true)
+        }
+    }
+
+    @discardableResult
+    private func addWindow(rect: NSRect, view: NSView) -> NSWindow {
         let win = MasterWidgetWindow(contentRect: rect, styleMask: [.borderless], backing: .buffered, defer: false)
         win.isOpaque = false
         win.backgroundColor = .clear
@@ -2254,6 +2680,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         win.contentView = view
         win.makeKeyAndOrderFront(nil)
         windows.append(win)
+        return win
     }
 }
 
