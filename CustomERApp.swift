@@ -3,6 +3,7 @@ import Foundation
 import IOKit.pwr_mgt
 import IOKit.ps
 import Carbon
+import IOBluetooth
 
 // MARK: - Global Theme Presets (Dynamic Colors, Fonts & Shapes)
 enum ThemePreset: String {
@@ -899,37 +900,52 @@ class BatteryView: NSView {
     }
 
     private func getBTDevicesBackground() -> [(name: String, battery: Int?)] {
-        let pipe = Pipe(), proc = Process()
-        proc.executableURL = URL(fileURLWithPath: "/usr/sbin/system_profiler")
-        proc.arguments = ["SPBluetoothDataType"]; proc.standardOutput = pipe
-        try? proc.run(); proc.waitUntilExit()
-
-        let data = pipe.fileHandleForReading.readDataToEndOfFile()
-        let str = String(data: data, encoding: .utf8) ?? ""
         var list: [(name: String, battery: Int?)] = []
-
-        if let connRange = str.range(of: "Connected:") {
-            let sub = str[connRange.upperBound...]
-            let connSection: String
-            if let notConnRange = sub.range(of: "Not Connected:") { connSection = String(sub[..<notConnRange.lowerBound]) }
-            else { connSection = String(sub) }
-
-            let lines = connSection.components(separatedBy: .newlines)
-            var currentName: String?
-            for line in lines {
-                let trimmed = line.trimmingCharacters(in: .whitespaces)
-                if line.hasPrefix("          ") && !line.hasPrefix("              ") {
-                    let name = trimmed.replacingOccurrences(of: ":", with: "")
-                    if !name.isEmpty { currentName = name }
-                } else if line.contains("Battery Level:"), let name = currentName {
-                    if let range = line.range(of: "(\\d+)%", options: .regularExpression) {
-                        let numStr = line[range].replacingOccurrences(of: "%", with: "")
-                        list.append((name: name, battery: Int(numStr)))
-                        currentName = nil
+        if let devices = IOBluetoothDevice.pairedDevices() as? [IOBluetoothDevice] {
+            for d in devices where d.isConnected() {
+                let name = d.nameOrAddress ?? "Bluetooth Device"
+                var bat: Int? = nil
+                let keys = ["batteryPercentSingle", "batteryPercentCombined", "batteryPercentLeft", "batteryPercentRight", "batteryPercentCase"]
+                for k in keys {
+                    if let num = d.value(forKey: k) as? Int, num > 0 && num <= 100 {
+                        bat = max(bat ?? 0, num)
                     }
                 }
+                list.append((name: name, battery: bat))
             }
-            if let name = currentName, !list.contains(where: { $0.name == name }) { list.append((name: name, battery: nil)) }
+        }
+        if list.isEmpty {
+            let pipe = Pipe(), proc = Process()
+            proc.executableURL = URL(fileURLWithPath: "/usr/sbin/system_profiler")
+            proc.arguments = ["SPBluetoothDataType"]; proc.standardOutput = pipe
+            try? proc.run(); proc.waitUntilExit()
+
+            let data = pipe.fileHandleForReading.readDataToEndOfFile()
+            let str = String(data: data, encoding: .utf8) ?? ""
+
+            if let connRange = str.range(of: "Connected:") {
+                let sub = str[connRange.upperBound...]
+                let connSection: String
+                if let notConnRange = sub.range(of: "Not Connected:") { connSection = String(sub[..<notConnRange.lowerBound]) }
+                else { connSection = String(sub) }
+
+                let lines = connSection.components(separatedBy: .newlines)
+                var currentName: String?
+                for line in lines {
+                    let trimmed = line.trimmingCharacters(in: .whitespaces)
+                    if line.hasPrefix("          ") && !line.hasPrefix("              ") {
+                        let name = trimmed.replacingOccurrences(of: ":", with: "")
+                        if !name.isEmpty { currentName = name }
+                    } else if line.contains("Battery Level:"), let name = currentName {
+                        if let range = line.range(of: "(\\d+)%", options: .regularExpression) {
+                            let numStr = line[range].replacingOccurrences(of: "%", with: "")
+                            list.append((name: name, battery: Int(numStr)))
+                            currentName = nil
+                        }
+                    }
+                }
+                if let name = currentName, !list.contains(where: { $0.name == name }) { list.append((name: name, battery: nil)) }
+            }
         }
         return list
     }
@@ -963,12 +979,12 @@ class BatteryView: NSView {
             nameTF.frame = NSRect(x: 10, y: 8, width: containerW - 74, height: 24)
             devCard.addSubview(nameTF)
 
-            let batVal = dev.battery ?? 100
+            let batText = dev.battery != nil ? "\(dev.battery!)%" : "N/A"
             let badgeTF = NSTextField()
-            let badgeCell = CenteredTextFieldCell(textCell: "\(batVal)%")
+            let badgeCell = CenteredTextFieldCell(textCell: batText)
             badgeCell.alignment = .center; badgeCell.font = dynamicFont(size: 11, weight: .bold)
             badgeCell.textColor = (ThemeManager.shared.currentPreset == .glass || ThemeManager.shared.currentPreset == .childish) ? .white : kSurface
-            badgeTF.cell = badgeCell; badgeTF.stringValue = "\(batVal)%"
+            badgeTF.cell = badgeCell; badgeTF.stringValue = batText
             badgeTF.isEditable = false; badgeTF.isBordered = false
             badgeTF.wantsLayer = true; badgeTF.layer?.cornerRadius = kRadius / 2; badgeTF.layer?.backgroundColor = kAccent.cgColor
             badgeTF.layer?.borderWidth = kBorderWidth; badgeTF.layer?.borderColor = kBorder.cgColor
@@ -2364,8 +2380,8 @@ class WallpaperPickerView: NSView {
         pathLabel.isEditable = false; pathLabel.isBordered = false; pathLabel.backgroundColor = .clear
         addSubview(pathLabel)
 
-        setupBtn(chooseFolderBtn, title: "📁 Choose Folder", action: #selector(onChooseFolder))
-        setupBtn(randomBtn, title: "🎲 Random", action: #selector(onRandomWallpaper))
+        setupBtn(chooseFolderBtn, title: "Choose Folder", action: #selector(onChooseFolder))
+        setupBtn(randomBtn, title: "Random", action: #selector(onRandomWallpaper))
 
         scrollView.hasVerticalScroller = true
         scrollView.drawsBackground = false
@@ -2424,7 +2440,7 @@ class WallpaperPickerView: NSView {
         } else {
             imageURLs = []
         }
-        pathLabel.stringValue = "📁 \(wallpaperFolderURL.lastPathComponent) (\(imageURLs.count) wallpapers)"
+        pathLabel.stringValue = "\(wallpaperFolderURL.lastPathComponent) (\(imageURLs.count) wallpapers)"
         renderGrid()
     }
 
