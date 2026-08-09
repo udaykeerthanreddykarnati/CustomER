@@ -2203,7 +2203,7 @@ class TimetableWidgetView: NSView {
 class CenterWallpaperTransitionManager {
     static let shared = CenterWallpaperTransitionManager()
     private var transitionWindow: NSWindow?
-    private var transitionImageView: NSImageView?
+    private var transitionImageView: NSView?
     private var isAnimating = false
 
     func animateAndSetWallpaper(url: URL, completion: (() -> Void)? = nil) {
@@ -2243,8 +2243,7 @@ class CenterWallpaperTransitionManager {
             win.collectionBehavior = [.canJoinAllSpaces, .stationary, .ignoresCycle]
             win.ignoresMouseEvents = true
 
-            let iv = NSImageView(frame: screenFrame)
-            iv.imageScaling = .scaleNone
+            let iv = NSView(frame: screenFrame)
             iv.wantsLayer = true
             iv.layer?.contentsGravity = .resizeAspectFill
             win.contentView = iv
@@ -2267,8 +2266,9 @@ class CenterWallpaperTransitionManager {
         let startH: CGFloat = 112
         let startFrame = NSRect(x: midX - startW / 2, y: midY - startH / 2, width: startW, height: startH)
 
-        iv.image = nil
-        iv.layer?.contents = img
+        if let cgImg = img.cgImage(forProposedRect: nil, context: nil, hints: nil) {
+            iv.layer?.contents = cgImg
+        }
         iv.layer?.contentsGravity = .resizeAspectFill
         iv.alphaValue = 0.0
         iv.frame = startFrame
