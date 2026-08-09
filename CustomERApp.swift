@@ -2228,8 +2228,9 @@ class CenterWallpaperTransitionManager {
             win.ignoresMouseEvents = true
 
             let iv = NSImageView(frame: screenFrame)
-            iv.imageScaling = .scaleAxesIndependently
+            iv.imageScaling = .scaleNone
             iv.wantsLayer = true
+            iv.layer?.contentsGravity = .resizeAspectFill
             win.contentView = iv
 
             self.transitionWindow = win
@@ -2250,7 +2251,9 @@ class CenterWallpaperTransitionManager {
         let startH: CGFloat = 112
         let startFrame = NSRect(x: midX - startW / 2, y: midY - startH / 2, width: startW, height: startH)
 
-        iv.image = img
+        iv.image = nil
+        iv.layer?.contents = img
+        iv.layer?.contentsGravity = .resizeAspectFill
         iv.alphaValue = 0.0
         iv.frame = startFrame
         iv.layer?.cornerRadius = 20
@@ -2276,8 +2279,8 @@ class CenterWallpaperTransitionManager {
         }, completionHandler: {
             // 2. NOW that overlay covers 100% of the screen, set native desktop wallpaper underneath
             self.setNativeWallpaper(url: url) {
-                // Give WindowServer 0.45s to complete compositing native desktop
-                DispatchQueue.main.asyncAfter(deadline: .now() + 0.45) {
+                // Give WindowServer 1.40s to complete compositing native desktop
+                DispatchQueue.main.asyncAfter(deadline: .now() + 1.40) {
                     // 3. Slowly & smoothly cross-fade overlay out (0.65s) to reveal updated native desktop
                     NSAnimationContext.runAnimationGroup({ ctx in
                         ctx.duration = 0.65
