@@ -706,6 +706,7 @@ class TodoView: NSView {
 class CalendarView: NSView {
     let widgetKey = "calendar"
     private let titleLabel = NSTextField()
+    private let legendLabel = NSTextField()
     private var dayViews: [NSTextField] = []
     private var dragStart: NSPoint = .zero, initialWinOrigin: NSPoint = .zero, dragActive = false
 
@@ -719,9 +720,21 @@ class CalendarView: NSView {
         titleLabel.font = dynamicFont(size: 13, weight: .bold); titleLabel.textColor = kText
         titleLabel.isEditable = false; titleLabel.isBordered = false; titleLabel.backgroundColor = .clear; addSubview(titleLabel)
 
+        let legendCell = CenteredTextFieldCell(textCell: "MON/THU: GIVE LAUNDRY  •  WED/SAT: TAKE LAUNDRY")
+        legendCell.alignment = .center
+        legendLabel.cell = legendCell
+        legendLabel.font = dynamicFont(size: 8.5, weight: .bold)
+        legendLabel.textColor = kDim
+        legendLabel.isEditable = false; legendLabel.isBordered = false; legendLabel.backgroundColor = .clear; addSubview(legendLabel)
+
         let headers = ["S", "M", "T", "W", "T", "F", "S"]
-        for h in headers {
+        for (idx, h) in headers.enumerated() {
             let lbl = NSTextField(labelWithString: h); lbl.font = dynamicFont(size: 10, weight: .bold); lbl.textColor = kDim; lbl.alignment = .center
+            if idx == 1 || idx == 4 { // Mon & Thu
+                lbl.textColor = NSColor(hex: "#F59E0B") ?? kAccent
+            } else if idx == 3 || idx == 6 { // Wed & Sat
+                lbl.textColor = NSColor(hex: "#10B981") ?? kAccent
+            }
             addSubview(lbl); dayViews.append(lbl)
         }
 
@@ -736,8 +749,10 @@ class CalendarView: NSView {
     override func layout() {
         super.layout()
         let w = bounds.width, h = bounds.height
-        titleLabel.frame = NSRect(x: 12, y: h - 30, width: w - 24, height: 20)
-        let gridX: CGFloat = 12, gridY: CGFloat = 10, colW = (w - 24) / 7.0, rowH = (h - 42) / 6.0
+        titleLabel.frame = NSRect(x: 12, y: h - 28, width: w - 24, height: 18)
+        legendLabel.frame = NSRect(x: 12, y: 6, width: w - 24, height: 14)
+
+        let gridX: CGFloat = 12, gridY: CGFloat = 24, colW = (w - 24) / 7.0, rowH = (h - 56) / 6.0
         for i in 0..<7 { dayViews[i].frame = NSRect(x: gridX + CGFloat(i) * colW, y: gridY + 5 * rowH, width: colW, height: rowH) }
         for r in 0..<5 {
             for c in 0..<7 {
@@ -758,14 +773,47 @@ class CalendarView: NSView {
 
         for i in 0..<35 {
             let lbl = dayViews[7 + i], dNum = i - fWeekday + 1
+            let c = i % 7 // Column 0=Sun, 1=Mon, 2=Tue, 3=Wed, 4=Thu, 5=Fri, 6=Sat
+
             if dNum >= 1 && dNum <= numDays {
                 lbl.stringValue = "\(dNum)"
                 if dNum == today {
-                    lbl.backgroundColor = kAccent; lbl.textColor = (ThemeManager.shared.currentPreset == .glass || ThemeManager.shared.currentPreset == .childish) ? .white : kSurface; lbl.font = dynamicFont(size: 11, weight: .bold)
+                    lbl.backgroundColor = kAccent
+                    lbl.textColor = (ThemeManager.shared.currentPreset == .glass || ThemeManager.shared.currentPreset == .childish) ? .white : kSurface
+                    lbl.font = dynamicFont(size: 11, weight: .bold)
+                    lbl.layer?.borderWidth = 2.0
+                    if c == 1 || c == 4 { // Give Laundry
+                        lbl.layer?.borderColor = (NSColor(hex: "#F59E0B") ?? kAccent).cgColor
+                    } else if c == 3 || c == 6 { // Take Laundry
+                        lbl.layer?.borderColor = (NSColor(hex: "#10B981") ?? kAccent).cgColor
+                    } else {
+                        lbl.layer?.borderColor = NSColor.clear.cgColor
+                    }
                 } else {
-                    lbl.backgroundColor = .clear; lbl.textColor = kText; lbl.font = dynamicFont(size: 11, weight: .medium)
+                    lbl.font = dynamicFont(size: 11, weight: .medium)
+                    if c == 1 || c == 4 { // Give Laundry (Mon / Thu)
+                        lbl.backgroundColor = (NSColor(hex: "#F59E0B") ?? kAccent).withAlphaComponent(0.22)
+                        lbl.textColor = (ThemeManager.shared.currentPreset == .glass) ? (NSColor(hex: "#FBBF24") ?? kText) : (NSColor(hex: "#D97706") ?? kText)
+                        lbl.layer?.borderWidth = 1.0
+                        lbl.layer?.borderColor = (NSColor(hex: "#F59E0B") ?? kAccent).withAlphaComponent(0.45).cgColor
+                    } else if c == 3 || c == 6 { // Take Laundry (Wed / Sat)
+                        lbl.backgroundColor = (NSColor(hex: "#10B981") ?? kAccent).withAlphaComponent(0.22)
+                        lbl.textColor = (ThemeManager.shared.currentPreset == .glass) ? (NSColor(hex: "#34D399") ?? kText) : (NSColor(hex: "#059669") ?? kText)
+                        lbl.layer?.borderWidth = 1.0
+                        lbl.layer?.borderColor = (NSColor(hex: "#10B981") ?? kAccent).withAlphaComponent(0.45).cgColor
+                    } else {
+                        lbl.backgroundColor = .clear
+                        lbl.textColor = kText
+                        lbl.layer?.borderWidth = 0
+                        lbl.layer?.borderColor = NSColor.clear.cgColor
+                    }
                 }
-            } else { lbl.stringValue = ""; lbl.backgroundColor = .clear }
+            } else {
+                lbl.stringValue = ""
+                lbl.backgroundColor = .clear
+                lbl.layer?.borderWidth = 0
+                lbl.layer?.borderColor = NSColor.clear.cgColor
+            }
         }
     }
 
@@ -1023,6 +1071,8 @@ class BatteryView: NSView {
         if let w = window { PositionManager.shared.savePosition(key: widgetKey, origin: w.frame.origin) }
     }
 }
+
+// (Standalone LaundryView removed in favor of direct CalendarView integration)
 
 // MARK: - 4. DIGITAL CLOCK WIDGET (tutuclock)
 class DigitalClockView: NSView {
