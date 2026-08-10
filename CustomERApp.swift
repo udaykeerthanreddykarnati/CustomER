@@ -2003,10 +2003,10 @@ class TimetableWidgetView: NSView {
 
     // Schedule items: (startCol, span, subjectCode)
     private let schedule: [String: [(startCol: Int, span: Int, code: String)]] = [
-        "Monday":    [(1, 1, "DBMS"), (2, 1, "SE"), (4, 2, "BD"), (7, 2, "DBMS LAB")],
+        "Monday":    [(1, 1, "DBMS"), (2, 1, "SE"), (4, 2, "GTA"), (7, 2, "DBMS LAB")],
         "Tuesday":   [(1, 2, "DA"), (4, 1, "ML"), (5, 1, "DBMS")],
         "Wednesday": [(1, 1, "ML"), (2, 1, "DBMS"), (4, 1, "SE"), (5, 1, "ML")],
-        "Thursday":  [(1, 2, "BD"), (4, 1, "DBMS"), (5, 1, "SE"), (7, 2, "ML LAB")],
+        "Thursday":  [(1, 2, "GTA"), (4, 1, "DBMS"), (5, 1, "SE"), (7, 2, "ML LAB")],
         "Friday":    [(1, 1, "SE"), (2, 1, "ML"), (4, 2, "DA")]
     ]
 
@@ -2084,7 +2084,7 @@ class TimetableWidgetView: NSView {
             return isDark ? NSColor(calibratedRed: 0.35, green: 0.22, blue: 0.48, alpha: 0.9) : NSColor(calibratedRed: 0.92, green: 0.86, blue: 0.98, alpha: 0.85)
         case "DA":
             return isDark ? NSColor(calibratedRed: 0.45, green: 0.35, blue: 0.18, alpha: 0.9) : NSColor(calibratedRed: 0.98, green: 0.91, blue: 0.78, alpha: 0.85)
-        case "BD":
+        case "GTA", "BD":
             return isDark ? NSColor(calibratedRed: 0.45, green: 0.22, blue: 0.26, alpha: 0.9) : NSColor(calibratedRed: 0.98, green: 0.85, blue: 0.87, alpha: 0.85)
         case "DBMS LAB":
             return isDark ? NSColor(calibratedRed: 0.18, green: 0.38, blue: 0.45, alpha: 0.9) : NSColor(calibratedRed: 0.82, green: 0.92, blue: 0.98, alpha: 0.85)
