@@ -2731,6 +2731,14 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         if win.isVisible {
             win.orderOut(nil)
         } else {
+            // Only open wallpaper picker when user is active on Desktop (Finder) or CustomER itself
+            if let activeApp = NSWorkspace.shared.frontmostApplication {
+                let bundleID = activeApp.bundleIdentifier ?? ""
+                let isDesktopActive = (bundleID == "com.apple.finder" || bundleID == "com.user.CustomERApp" || activeApp.processIdentifier == ProcessInfo.processInfo.processIdentifier)
+                if !isDesktopActive {
+                    return
+                }
+            }
             win.level = .floating
             win.makeKeyAndOrderFront(nil)
             NSApp.activate(ignoringOtherApps: true)
