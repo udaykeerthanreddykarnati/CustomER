@@ -2645,69 +2645,137 @@ class WallpaperPickerView: NSView {
 
 class AppDelegate: NSObject, NSApplicationDelegate {
     var windows: [NSWindow] = []
+    var widgetWindows: [String: NSWindow] = [:]
     var wallpaperWindow: NSWindow?
     private var hotKeyRef: EventHotKeyRef?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+        // Register Distributed Notification IPC observer
+        DistributedNotificationCenter.default().addObserver(
+            self,
+            selector: #selector(handleIPCControlNotification(_:)),
+            name: Notification.Name("com.user.CustomERApp.control"),
+            object: nil
+        )
+
         // Sync Desktop Folder Icons with Widget Theme
         FolderIconManager.updateDesktopFolderIcons(bgColor: ThemeManager.shared.currentBgColor)
 
         // 1. Reminders (tututodo)
         let defaultTodoRect = NSRect(x: 24, y: 600, width: 280, height: 440)
         let todoOrigin = PositionManager.shared.getPosition(key: "reminders", defaultOrigin: defaultTodoRect.origin)
-        _ = addWindow(rect: NSRect(origin: todoOrigin, size: defaultTodoRect.size), view: TodoView(frame: NSRect(origin: todoOrigin, size: defaultTodoRect.size)))
+        let todoWin = addWindow(rect: NSRect(origin: todoOrigin, size: defaultTodoRect.size), view: TodoView(frame: NSRect(origin: todoOrigin, size: defaultTodoRect.size)))
+        widgetWindows["reminders"] = todoWin
 
         // 2. Calendar
         let defaultCalRect = NSRect(x: 24, y: 350, width: 280, height: 230)
         let calOrigin = PositionManager.shared.getPosition(key: "calendar", defaultOrigin: defaultCalRect.origin)
-        _ = addWindow(rect: NSRect(origin: calOrigin, size: defaultCalRect.size), view: CalendarView(frame: NSRect(origin: calOrigin, size: defaultCalRect.size)))
+        let calWin = addWindow(rect: NSRect(origin: calOrigin, size: defaultCalRect.size), view: CalendarView(frame: NSRect(origin: calOrigin, size: defaultCalRect.size)))
+        widgetWindows["calendar"] = calWin
 
         // 3. Battery
         let defaultBatRect = NSRect(x: 24, y: 50, width: 280, height: 280)
         let batOrigin = PositionManager.shared.getPosition(key: "battery", defaultOrigin: defaultBatRect.origin)
-        _ = addWindow(rect: NSRect(origin: batOrigin, size: defaultBatRect.size), view: BatteryView(frame: NSRect(origin: batOrigin, size: defaultBatRect.size)))
+        let batWin = addWindow(rect: NSRect(origin: batOrigin, size: defaultBatRect.size), view: BatteryView(frame: NSRect(origin: batOrigin, size: defaultBatRect.size)))
+        widgetWindows["battery"] = batWin
 
         // 4. Digital Clock
         let defaultClockRect = NSRect(x: 320, y: 930, width: 280, height: 110)
         let clockOrigin = PositionManager.shared.getPosition(key: "digital_clock", defaultOrigin: defaultClockRect.origin)
-        _ = addWindow(rect: NSRect(origin: clockOrigin, size: defaultClockRect.size), view: DigitalClockView(frame: NSRect(origin: clockOrigin, size: defaultClockRect.size)))
+        let clockWin = addWindow(rect: NSRect(origin: clockOrigin, size: defaultClockRect.size), view: DigitalClockView(frame: NSRect(origin: clockOrigin, size: defaultClockRect.size)))
+        widgetWindows["digital_clock"] = clockWin
 
         // 6. Circular Analog Clock
         let defaultAnalogRect = NSRect(x: 613, y: 827, width: 220, height: 220)
         let analogOrigin = PositionManager.shared.getPosition(key: "analog_clock", defaultOrigin: defaultAnalogRect.origin)
-        _ = addWindow(rect: NSRect(origin: analogOrigin, size: defaultAnalogRect.size), view: AnalogClockView(frame: NSRect(origin: analogOrigin, size: defaultAnalogRect.size)))
+        let analogWin = addWindow(rect: NSRect(origin: analogOrigin, size: defaultAnalogRect.size), view: AnalogClockView(frame: NSRect(origin: analogOrigin, size: defaultAnalogRect.size)))
+        widgetWindows["analog_clock"] = analogWin
 
         // 7. Spotify Player
         let defaultSpotRect = NSRect(x: 872, y: 905, width: 280, height: 130)
         let spotOrigin = PositionManager.shared.getPosition(key: "spotify", defaultOrigin: defaultSpotRect.origin)
-        _ = addWindow(rect: NSRect(origin: spotOrigin, size: defaultSpotRect.size), view: SpotifyView(frame: NSRect(origin: spotOrigin, size: defaultSpotRect.size)))
+        let spotWin = addWindow(rect: NSRect(origin: spotOrigin, size: defaultSpotRect.size), view: SpotifyView(frame: NSRect(origin: spotOrigin, size: defaultSpotRect.size)))
+        widgetWindows["spotify"] = spotWin
 
         // 8. Roblox Dance GIF
         let defaultGifRect = NSRect(x: 268, y: 694, width: 196, height: 196)
         let gifOrigin = PositionManager.shared.getPosition(key: "gif", defaultOrigin: defaultGifRect.origin)
-        _ = addWindow(rect: NSRect(origin: gifOrigin, size: defaultGifRect.size), view: GifView(frame: NSRect(origin: gifOrigin, size: defaultGifRect.size)))
+        let gifWin = addWindow(rect: NSRect(origin: gifOrigin, size: defaultGifRect.size), view: GifView(frame: NSRect(origin: gifOrigin, size: defaultGifRect.size)))
+        widgetWindows["gif"] = gifWin
 
         // 10. Apple Mail Unread Widget
         let defaultMailRect = NSRect(x: 320, y: 165, width: 280, height: 110)
         let mailOrigin = PositionManager.shared.getPosition(key: "mail", defaultOrigin: defaultMailRect.origin)
-        _ = addWindow(rect: NSRect(origin: mailOrigin, size: defaultMailRect.size), view: MailView(frame: NSRect(origin: mailOrigin, size: defaultMailRect.size)))
+        let mailWin = addWindow(rect: NSRect(origin: mailOrigin, size: defaultMailRect.size), view: MailView(frame: NSRect(origin: mailOrigin, size: defaultMailRect.size)))
+        widgetWindows["mail"] = mailWin
 
         // 11. Timetable Vector Widget (tutotimetable - Wide Format)
         let defaultTTRect = NSRect(x: 320, y: 440, width: 680, height: 220)
         let ttOrigin = PositionManager.shared.getPosition(key: "timetable", defaultOrigin: defaultTTRect.origin)
-        _ = addWindow(rect: NSRect(origin: ttOrigin, size: defaultTTRect.size), view: TimetableWidgetView(frame: NSRect(origin: ttOrigin, size: defaultTTRect.size)))
+        let ttWin = addWindow(rect: NSRect(origin: ttOrigin, size: defaultTTRect.size), view: TimetableWidgetView(frame: NSRect(origin: ttOrigin, size: defaultTTRect.size)))
+        widgetWindows["timetable"] = ttWin
 
         // 12. 6x6 Album Collage Widget
         let defaultCollageRect = NSRect(x: 1050, y: 80, width: 640, height: 640)
         let collageOrigin = PositionManager.shared.getPosition(key: "album_collage", defaultOrigin: defaultCollageRect.origin)
-        _ = addWindow(rect: NSRect(origin: collageOrigin, size: defaultCollageRect.size), view: AlbumCollageView(frame: NSRect(origin: collageOrigin, size: defaultCollageRect.size)))
+        let collageWin = addWindow(rect: NSRect(origin: collageOrigin, size: defaultCollageRect.size), view: AlbumCollageView(frame: NSRect(origin: collageOrigin, size: defaultCollageRect.size)))
+        widgetWindows["album_collage"] = collageWin
 
         // 13. Wallpaper Switcher Widget (tutuwallpaper)
         let defaultWallRect = NSRect(x: 320, y: 300, width: 680, height: 420)
         let wallOrigin = PositionManager.shared.getPosition(key: "wallpaper_switcher", defaultOrigin: defaultWallRect.origin)
         let wallWin = addWindow(rect: NSRect(origin: wallOrigin, size: defaultWallRect.size), view: WallpaperPickerView(frame: NSRect(origin: wallOrigin, size: defaultWallRect.size)))
         wallpaperWindow = wallWin
+        widgetWindows["wallpaper_switcher"] = wallWin
         setupWallpaperHotkey()
+    }
+
+    @objc private func handleIPCControlNotification(_ notif: Notification) {
+        guard let userInfo = notif.userInfo as? [String: String],
+              let action = userInfo["action"] else { return }
+
+        DispatchQueue.main.async {
+            if action == "kill_app" {
+                NSApp.terminate(nil)
+                return
+            }
+            guard let rawWidgetKey = userInfo["widget"] else { return }
+            let widgetKey = self.canonicalWidgetKey(rawWidgetKey)
+            guard let win = self.widgetWindows[widgetKey] else { return }
+
+            switch action {
+            case "hide", "kill", "close":
+                win.orderOut(nil)
+            case "show", "open":
+                win.makeKeyAndOrderFront(nil)
+            case "toggle":
+                if win.isVisible {
+                    win.orderOut(nil)
+                } else {
+                    win.makeKeyAndOrderFront(nil)
+                }
+            default:
+                break
+            }
+        }
+    }
+
+    private func canonicalWidgetKey(_ input: String) -> String {
+        let key = input.lowercased().trimmingCharacters(in: .whitespacesAndNewlines)
+        switch key {
+        case "todo", "reminders", "reminder": return "reminders"
+        case "calendar", "cal": return "calendar"
+        case "battery", "bat": return "battery"
+        case "clock", "digital", "digital_clock": return "digital_clock"
+        case "analog", "analog_clock": return "analog_clock"
+        case "spotify", "music": return "spotify"
+        case "gif", "roblox": return "gif"
+        case "mail", "email": return "mail"
+        case "timetable", "schedule": return "timetable"
+        case "collage", "album", "album_collage": return "album_collage"
+        case "wallpaper", "switcher", "wallpaper_switcher": return "wallpaper_switcher"
+        default: return key
+        }
     }
 
     private func setupWallpaperHotkey() {

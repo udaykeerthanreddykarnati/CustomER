@@ -100,6 +100,38 @@ chmod +x watch.sh
 
 ---
 
+## Terminal CLI Commands (`widgets`)
+
+CustomER includes a terminal command interface powered by macOS `DistributedNotificationCenter` IPC:
+
+```bash
+# Start / Restart all widgets (auto-compiles if source updated)
+widgets
+
+# Stop all widgets
+widgets kill
+
+# Hide / Close a specific widget
+widgets kill calendar    # Hides calendar widget
+widgets kill battery     # Hides battery widget
+widgets kill spotify     # Hides spotify widget
+
+# Show / Open a specific widget
+widgets show calendar
+widgets show spotify
+
+# Toggle visibility of a specific widget
+widgets toggle calendar
+
+# Check running status & list available widget keys
+widgets list
+
+# Force recompile latest code and restart
+widgets build
+```
+
+---
+
 ## File Structure
 
 ```
