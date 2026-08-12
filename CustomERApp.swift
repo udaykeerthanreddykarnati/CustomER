@@ -101,8 +101,8 @@ enum ThemePreset: String {
 var kBg: NSColor          { ThemeManager.shared.currentBgColor }
 var kSurface: NSColor     { ThemeManager.shared.currentPreset.surfaceColor }
 var kText: NSColor        { ThemeManager.shared.currentTextColor }
-var kBlue: NSColor        { ThemeManager.shared.currentPreset.accentColor }
-var kAccent: NSColor      { ThemeManager.shared.currentPreset.accentColor }
+var kBlue: NSColor        { ThemeManager.shared.currentAccentColor }
+var kAccent: NSColor      { ThemeManager.shared.currentAccentColor }
 var kAddBg: NSColor       { ThemeManager.shared.currentPreset.addBgColor }
 var kDim: NSColor         { ThemeManager.shared.currentPreset.dimColor }
 var kBorder: NSColor      { ThemeManager.shared.currentPreset.borderColor }
@@ -110,6 +110,35 @@ var kRadius: CGFloat      { ThemeManager.shared.currentPreset.cornerRadius }
 var kBorderWidth: CGFloat { ThemeManager.shared.currentPreset.borderWidth }
 
 func dynamicFont(size: CGFloat, weight: NSFont.Weight = .regular) -> NSFont {
+    if let customName = ThemeManager.shared.customFontName,
+       !customName.isEmpty,
+       !customName.hasPrefix("."),
+       !customName.contains("System Font") {
+        let isBold = (weight == .bold || weight == .heavy || weight == .black || weight == .semibold)
+        let fontTraits: NSFontTraitMask = isBold ? .boldFontMask : []
+        
+        // 1. Direct PostScript name lookup
+        if let font = NSFont(name: customName, size: size) {
+            if isBold {
+                return NSFontManager.shared.convert(font, toHaveTrait: .boldFontMask)
+            }
+            return font
+        }
+        // 2. NSFontManager family lookup
+        if let font = NSFontManager.shared.font(withFamily: customName, traits: fontTraits, weight: isBold ? 9 : 5, size: size) {
+            return font
+        }
+        // 3. Fallback: match first available font face in family
+        if let members = NSFontManager.shared.availableMembers(ofFontFamily: customName),
+           let firstMember = members.first,
+           let psName = firstMember[0] as? String,
+           let font = NSFont(name: psName, size: size) {
+            if isBold {
+                return NSFontManager.shared.convert(font, toHaveTrait: .boldFontMask)
+            }
+            return font
+        }
+    }
     return ThemeManager.shared.currentPreset.font(size: size, weight: weight)
 }
 
@@ -137,17 +166,27 @@ extension NSView {
     func updateThemeRecursively(preset: ThemePreset) {
         let activeText = ThemeManager.shared.currentTextColor
         if let tf = self as? NSTextField {
-            tf.textColor = (tf.tag == 99) ? preset.dimColor : activeText
+            if tf.tag == 99 {
+                tf.textColor = ThemeManager.shared.currentPreset.dimColor
+            } else if tf.tag == 100 {
+                // Keep custom badge/card text color intact
+            } else if tf.backgroundColor == .clear || tf.backgroundColor == nil {
+                tf.textColor = activeText
+            }
             if let currentFont = tf.font {
                 let name = currentFont.fontName.lowercased()
                 let isBold = currentFont.fontDescriptor.symbolicTraits.contains(.bold) || name.contains("bold") || name.contains("heavy") || name.contains("black")
                 let weight: NSFont.Weight = isBold ? .bold : .regular
-                tf.font = preset.font(size: currentFont.pointSize, weight: weight)
+                tf.font = dynamicFont(size: currentFont.pointSize, weight: weight)
             }
         } else if let btn = self as? NSButton {
-            btn.contentTintColor = activeText
+            if btn.tag != 100 {
+                btn.contentTintColor = activeText
+            }
             if let currentFont = btn.font {
-                btn.font = preset.font(size: currentFont.pointSize, weight: .bold)
+                let name = currentFont.fontName.lowercased()
+                let isBold = currentFont.fontDescriptor.symbolicTraits.contains(.bold) || name.contains("bold")
+                btn.font = dynamicFont(size: currentFont.pointSize, weight: isBold ? .bold : .medium)
             }
         }
         for sub in subviews {
@@ -171,13 +210,169 @@ extension NSImage {
     }
 }
 
+// MARK: - COLOR PANEL DELEGATE (Color Wheel Support)
+class ColorPanelDelegate: NSObject {
+    static let shared = ColorPanelDelegate()
+    enum TargetColor { case text, bg, accent }
+    private var currentTarget: TargetColor = .text
+
+    func openColorWheel(for target: TargetColor, initialColor: NSColor) {
+        currentTarget = target
+        let panel = NSColorPanel.shared
+        panel.color = initialColor
+        panel.setTarget(self)
+        panel.setAction(#selector(colorDidChange(_:)))
+        panel.isContinuous = false
+        panel.orderFront(nil)
+        NSApp.activate(ignoringOtherApps: true)
+    }
+
+    @objc private func colorDidChange(_ sender: NSColorPanel) {
+        let selectedColor = sender.color
+        switch currentTarget {
+        case .text:
+            ThemeManager.shared.customTextColor = selectedColor
+        case .bg:
+            ThemeManager.shared.customBgColor = selectedColor
+        case .accent:
+            ThemeManager.shared.customAccentColor = selectedColor
+        }
+    }
+}
+
+// MARK: - FONT PANEL DELEGATE (System Font Picker Support)
+class FontPanelDelegate: NSObject {
+    static let shared = FontPanelDelegate()
+
+    func openFontPicker() {
+        let fontManager = NSFontManager.shared
+        fontManager.target = self
+        fontManager.action = #selector(changeFont(_:))
+        let panel = fontManager.fontPanel(true)
+        panel?.orderFront(nil)
+        NSApp.activate(ignoringOtherApps: true)
+    }
+
+    @objc private func changeFont(_ sender: Any?) {
+        guard let fontManager = sender as? NSFontManager else { return }
+        let currentFont = dynamicFont(size: 12, weight: .regular)
+        let selectedFont = fontManager.convert(currentFont)
+        let fontName = selectedFont.fontName
+        let familyName = selectedFont.familyName ?? fontName
+        
+        if !fontName.hasPrefix(".") && fontName != "System Font" && !familyName.hasPrefix(".") {
+            ThemeManager.shared.customFontName = fontName
+        }
+    }
+}
+
 class ThemeManager {
     static let shared = ThemeManager()
     static let notifName = NSNotification.Name("com.user.CustomER.themeChanged")
 
-    var currentPreset: ThemePreset { get { .minimal } set {} }
-    var currentBgColor: NSColor { get { NSColor(hex: "#FEF9C3")! } set {} }
-    var currentTextColor: NSColor { get { NSColor(hex: "#800020")! } set {} }
+    private var _customTextColorHex: String?
+    private var _customBgColorHex: String?
+    private var _customAccentColorHex: String?
+    private var _customFontName: String?
+
+    var currentPreset: ThemePreset = .minimal {
+        didSet {
+            UserDefaults.standard.set(currentPreset.rawValue, forKey: "current_theme_preset")
+            notifyThemeChange()
+        }
+    }
+
+    var customTextColor: NSColor? {
+        get {
+            guard let hex = _customTextColorHex else { return nil }
+            return NSColor(hex: hex)
+        }
+        set {
+            _customTextColorHex = newValue?.toHex()
+            UserDefaults.standard.set(_customTextColorHex, forKey: "custom_text_color_hex")
+            notifyThemeChange()
+        }
+    }
+
+    var customBgColor: NSColor? {
+        get {
+            guard let hex = _customBgColorHex else { return nil }
+            return NSColor(hex: hex)
+        }
+        set {
+            _customBgColorHex = newValue?.toHex()
+            UserDefaults.standard.set(_customBgColorHex, forKey: "custom_bg_color_hex")
+            notifyThemeChange()
+        }
+    }
+
+    var customAccentColor: NSColor? {
+        get {
+            guard let hex = _customAccentColorHex else { return nil }
+            return NSColor(hex: hex)
+        }
+        set {
+            _customAccentColorHex = newValue?.toHex()
+            UserDefaults.standard.set(_customAccentColorHex, forKey: "custom_accent_color_hex")
+            notifyThemeChange()
+        }
+    }
+
+    var customFontName: String? {
+        get { return _customFontName }
+        set {
+            _customFontName = newValue
+            UserDefaults.standard.set(_customFontName, forKey: "custom_font_name")
+            notifyThemeChange()
+        }
+    }
+
+    var currentTextColor: NSColor {
+        return customTextColor ?? currentPreset.textColor
+    }
+
+    var currentBgColor: NSColor {
+        return customBgColor ?? currentPreset.bgColor
+    }
+
+    var currentAccentColor: NSColor {
+        return customAccentColor ?? currentPreset.accentColor
+    }
+
+    private init() {
+        if let raw = UserDefaults.standard.string(forKey: "current_theme_preset"), let p = ThemePreset(rawValue: raw) {
+            currentPreset = p
+        }
+        _customTextColorHex = UserDefaults.standard.string(forKey: "custom_text_color_hex")
+        _customBgColorHex = UserDefaults.standard.string(forKey: "custom_bg_color_hex")
+        _customAccentColorHex = UserDefaults.standard.string(forKey: "custom_accent_color_hex")
+        _customFontName = UserDefaults.standard.string(forKey: "custom_font_name")
+    }
+
+    private var notifyDebounceWorkItem: DispatchWorkItem?
+
+    func notifyThemeChange() {
+        notifyDebounceWorkItem?.cancel()
+        let item = DispatchWorkItem { [weak self] in
+            guard let self = self else { return }
+            FolderIconManager.updateDesktopFolderIcons(bgColor: self.currentBgColor)
+            NotificationCenter.default.post(name: ThemeManager.notifName, object: nil)
+        }
+        notifyDebounceWorkItem = item
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1, execute: item)
+    }
+
+    func resetCustomStyles() {
+        _customTextColorHex = nil
+        _customBgColorHex = nil
+        _customAccentColorHex = nil
+        _customFontName = nil
+        UserDefaults.standard.removeObject(forKey: "custom_text_color_hex")
+        UserDefaults.standard.removeObject(forKey: "custom_bg_color_hex")
+        UserDefaults.standard.removeObject(forKey: "custom_accent_color_hex")
+        UserDefaults.standard.removeObject(forKey: "custom_font_name")
+        notifyThemeChange()
+    }
 }
 
 class FolderIconManager {
@@ -673,13 +868,16 @@ class TodoView: NSView {
     private func doEdit(_ id: UUID, _ title: String) { ReminderStore.shared.updateTitle(id: id, title: title); reload() }
     @objc func clearDone() { ReminderStore.shared.clearCompleted(); reload() }
 
-    private func listenForThemeChanges() { DistributedNotificationCenter.default().addObserver(self, selector: #selector(onThemeChanged), name: ThemeManager.notifName, object: nil) }
+    private func listenForThemeChanges() {
+        NotificationCenter.default.addObserver(self, selector: #selector(onThemeChanged), name: ThemeManager.notifName, object: nil)
+        DistributedNotificationCenter.default().addObserver(self, selector: #selector(onThemeChanged), name: ThemeManager.notifName, object: nil)
+    }
     @objc private func onThemeChanged() {
         DispatchQueue.main.async {
             CATransaction.begin()
             CATransaction.setDisableActions(true)
             let p = ThemeManager.shared.currentPreset
-            self.layer?.backgroundColor = p.bgColor.cgColor
+            self.layer?.backgroundColor = ThemeManager.shared.currentBgColor.cgColor
             self.layer?.cornerRadius = p.cornerRadius
             self.layer?.borderColor = NSColor.clear.cgColor
             self.layer?.borderWidth = 0
@@ -817,13 +1015,16 @@ class CalendarView: NSView {
         }
     }
 
-    private func listenForThemeChanges() { DistributedNotificationCenter.default().addObserver(self, selector: #selector(onThemeChanged), name: ThemeManager.notifName, object: nil) }
+    private func listenForThemeChanges() {
+        NotificationCenter.default.addObserver(self, selector: #selector(onThemeChanged), name: ThemeManager.notifName, object: nil)
+        DistributedNotificationCenter.default().addObserver(self, selector: #selector(onThemeChanged), name: ThemeManager.notifName, object: nil)
+    }
     @objc private func onThemeChanged() {
         DispatchQueue.main.async {
             CATransaction.begin()
             CATransaction.setDisableActions(true)
             let p = ThemeManager.shared.currentPreset
-            self.layer?.backgroundColor = p.bgColor.cgColor
+            self.layer?.backgroundColor = ThemeManager.shared.currentBgColor.cgColor
             self.layer?.cornerRadius = p.cornerRadius
             self.layer?.borderColor = NSColor.clear.cgColor
             self.layer?.borderWidth = 0
@@ -1043,13 +1244,16 @@ class BatteryView: NSView {
         }
     }
 
-    private func listenForThemeChanges() { DistributedNotificationCenter.default().addObserver(self, selector: #selector(onThemeChanged), name: ThemeManager.notifName, object: nil) }
+    private func listenForThemeChanges() {
+        NotificationCenter.default.addObserver(self, selector: #selector(onThemeChanged), name: ThemeManager.notifName, object: nil)
+        DistributedNotificationCenter.default().addObserver(self, selector: #selector(onThemeChanged), name: ThemeManager.notifName, object: nil)
+    }
     @objc private func onThemeChanged() {
         DispatchQueue.main.async {
             CATransaction.begin()
             CATransaction.setDisableActions(true)
             let p = ThemeManager.shared.currentPreset
-            self.layer?.backgroundColor = p.bgColor.cgColor
+            self.layer?.backgroundColor = ThemeManager.shared.currentBgColor.cgColor
             self.layer?.cornerRadius = p.cornerRadius
             self.layer?.borderColor = NSColor.clear.cgColor
             self.layer?.borderWidth = 0
@@ -1114,13 +1318,16 @@ class DigitalClockView: NSView {
         dateLabel.stringValue = df.string(from: now).uppercased()
     }
 
-    private func listenForThemeChanges() { DistributedNotificationCenter.default().addObserver(self, selector: #selector(onThemeChanged), name: ThemeManager.notifName, object: nil) }
+    private func listenForThemeChanges() {
+        NotificationCenter.default.addObserver(self, selector: #selector(onThemeChanged), name: ThemeManager.notifName, object: nil)
+        DistributedNotificationCenter.default().addObserver(self, selector: #selector(onThemeChanged), name: ThemeManager.notifName, object: nil)
+    }
     @objc private func onThemeChanged() {
         DispatchQueue.main.async {
             CATransaction.begin()
             CATransaction.setDisableActions(true)
             let p = ThemeManager.shared.currentPreset
-            self.layer?.backgroundColor = p.bgColor.cgColor
+            self.layer?.backgroundColor = ThemeManager.shared.currentBgColor.cgColor
             self.layer?.cornerRadius = p.cornerRadius
             self.layer?.borderColor = NSColor.clear.cgColor
             self.layer?.borderWidth = 0
@@ -1184,7 +1391,7 @@ class ColorPickerView: NSView {
         bgSwatchesContainer.wantsLayer = true
         addSubview(bgSwatchesContainer)
 
-        bgPickerBtn.title = "Bg 🎨"
+        bgPickerBtn.title = "Bg"
         bgPickerBtn.font = dynamicFont(size: 9, weight: .bold)
         bgPickerBtn.isBordered = false; bgPickerBtn.wantsLayer = true; bgPickerBtn.layer?.cornerRadius = kRadius / 2
         bgPickerBtn.layer?.backgroundColor = kAccent.cgColor; bgPickerBtn.layer?.borderWidth = kBorderWidth; bgPickerBtn.layer?.borderColor = kBorder.cgColor
@@ -1247,7 +1454,7 @@ class ColorPickerView: NSView {
     @objc private func bgSwatchTapped(_ sender: NSButton) {
         let hex = bgPresetHexes[sender.tag]
         if let color = NSColor(hex: hex) {
-            ThemeManager.shared.currentBgColor = color
+            ThemeManager.shared.customBgColor = color
             renderSwatches()
         }
     }
@@ -1255,32 +1462,24 @@ class ColorPickerView: NSView {
     @objc private func textSwatchTapped(_ sender: NSButton) {
         let hex = textPresetHexes[sender.tag]
         if let color = NSColor(hex: hex) {
-            ThemeManager.shared.currentTextColor = color
+            ThemeManager.shared.customTextColor = color
             renderSwatches()
         }
     }
 
     @objc private func openBgColorPicker() {
-        activePickerMode = "bg"
-        NSColorPanel.shared.color = ThemeManager.shared.currentBgColor
-        NSColorPanel.shared.setTarget(self)
-        NSColorPanel.shared.setAction(#selector(colorPanelChanged(_:)))
-        NSColorPanel.shared.orderFront(nil)
+        ColorPanelDelegate.shared.openColorWheel(for: .bg, initialColor: kBg)
     }
 
     @objc private func openTextColorPicker() {
-        activePickerMode = "text"
-        NSColorPanel.shared.color = ThemeManager.shared.currentTextColor
-        NSColorPanel.shared.setTarget(self)
-        NSColorPanel.shared.setAction(#selector(colorPanelChanged(_:)))
-        NSColorPanel.shared.orderFront(nil)
+        ColorPanelDelegate.shared.openColorWheel(for: .text, initialColor: kText)
     }
 
     @objc private func colorPanelChanged(_ sender: NSColorPanel) {
         if activePickerMode == "bg" {
-            ThemeManager.shared.currentBgColor = sender.color
+            ThemeManager.shared.customBgColor = sender.color
         } else {
-            ThemeManager.shared.currentTextColor = sender.color
+            ThemeManager.shared.customTextColor = sender.color
         }
         renderSwatches()
     }
@@ -1401,13 +1600,16 @@ class AnalogClockView: NSView {
         ctx.setFillColor(kText.cgColor); ctx.addEllipse(in: CGRect(x: center.x - 4, y: center.y - 4, width: 8, height: 8)); ctx.fillPath()
     }
 
-    private func listenForThemeChanges() { DistributedNotificationCenter.default().addObserver(self, selector: #selector(onThemeChanged), name: ThemeManager.notifName, object: nil) }
+    private func listenForThemeChanges() {
+        NotificationCenter.default.addObserver(self, selector: #selector(onThemeChanged), name: ThemeManager.notifName, object: nil)
+        DistributedNotificationCenter.default().addObserver(self, selector: #selector(onThemeChanged), name: ThemeManager.notifName, object: nil)
+    }
     @objc private func onThemeChanged() {
         DispatchQueue.main.async {
             CATransaction.begin()
             CATransaction.setDisableActions(true)
             let p = ThemeManager.shared.currentPreset
-            self.layer?.backgroundColor = p.bgColor.cgColor
+            self.layer?.backgroundColor = ThemeManager.shared.currentBgColor.cgColor
             self.layer?.cornerRadius = self.bounds.width / 2.0
             self.layer?.borderColor = NSColor.clear.cgColor
             self.layer?.borderWidth = 0
@@ -1581,13 +1783,16 @@ class SpotifyView: NSView {
     @objc private func onPlayPause() { _ = runScript("tell application \"Spotify\" to playpause"); DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) { [weak self] in self?.updateSpotifyInfo() } }
     @objc private func onNext() { _ = runScript("tell application \"Spotify\" to next track"); DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) { [weak self] in self?.updateSpotifyInfo() } }
 
-    private func listenForThemeChanges() { DistributedNotificationCenter.default().addObserver(self, selector: #selector(onThemeChanged), name: ThemeManager.notifName, object: nil) }
+    private func listenForThemeChanges() {
+        NotificationCenter.default.addObserver(self, selector: #selector(onThemeChanged), name: ThemeManager.notifName, object: nil)
+        DistributedNotificationCenter.default().addObserver(self, selector: #selector(onThemeChanged), name: ThemeManager.notifName, object: nil)
+    }
     @objc private func onThemeChanged() {
         DispatchQueue.main.async {
             CATransaction.begin()
             CATransaction.setDisableActions(true)
             let p = ThemeManager.shared.currentPreset
-            self.layer?.backgroundColor = p.bgColor.cgColor
+            self.layer?.backgroundColor = ThemeManager.shared.currentBgColor.cgColor
             self.layer?.cornerRadius = p.cornerRadius
             self.layer?.borderColor = NSColor.clear.cgColor
             self.layer?.borderWidth = 0
@@ -1860,13 +2065,16 @@ class MailView: NSView {
         }.resume()
     }
 
-    private func listenForThemeChanges() { DistributedNotificationCenter.default().addObserver(self, selector: #selector(onThemeChanged), name: ThemeManager.notifName, object: nil) }
+    private func listenForThemeChanges() {
+        NotificationCenter.default.addObserver(self, selector: #selector(onThemeChanged), name: ThemeManager.notifName, object: nil)
+        DistributedNotificationCenter.default().addObserver(self, selector: #selector(onThemeChanged), name: ThemeManager.notifName, object: nil)
+    }
     @objc private func onThemeChanged() {
         DispatchQueue.main.async {
             CATransaction.begin()
             CATransaction.setDisableActions(true)
             let p = ThemeManager.shared.currentPreset
-            self.layer?.backgroundColor = p.bgColor.cgColor
+            self.layer?.backgroundColor = ThemeManager.shared.currentBgColor.cgColor
             self.layer?.cornerRadius = p.cornerRadius
             self.layer?.borderColor = NSColor.clear.cgColor
             self.layer?.borderWidth = 0
@@ -1962,7 +2170,10 @@ class AlbumCollageView: NSView {
         }
     }
 
-    private func listenForThemeChanges() { DistributedNotificationCenter.default().addObserver(self, selector: #selector(onThemeChanged), name: ThemeManager.notifName, object: nil) }
+    private func listenForThemeChanges() {
+        NotificationCenter.default.addObserver(self, selector: #selector(onThemeChanged), name: ThemeManager.notifName, object: nil)
+        DistributedNotificationCenter.default().addObserver(self, selector: #selector(onThemeChanged), name: ThemeManager.notifName, object: nil)
+    }
     @objc private func onThemeChanged() {
         DispatchQueue.main.async {
             CATransaction.begin()
@@ -2216,13 +2427,16 @@ class TimetableWidgetView: NSView {
         renderGrid()
     }
 
-    private func listenForThemeChanges() { DistributedNotificationCenter.default().addObserver(self, selector: #selector(onThemeChanged), name: ThemeManager.notifName, object: nil) }
+    private func listenForThemeChanges() {
+        NotificationCenter.default.addObserver(self, selector: #selector(onThemeChanged), name: ThemeManager.notifName, object: nil)
+        DistributedNotificationCenter.default().addObserver(self, selector: #selector(onThemeChanged), name: ThemeManager.notifName, object: nil)
+    }
     @objc private func onThemeChanged() {
         DispatchQueue.main.async {
             CATransaction.begin()
             CATransaction.setDisableActions(true)
             let p = ThemeManager.shared.currentPreset
-            self.layer?.backgroundColor = p.bgColor.cgColor
+            self.layer?.backgroundColor = ThemeManager.shared.currentBgColor.cgColor
             self.layer?.cornerRadius = p.cornerRadius
             self.layer?.borderColor = NSColor.clear.cgColor
             self.layer?.borderWidth = 0
@@ -2431,7 +2645,7 @@ class WallpaperPickerView: NSView {
         addSubview(pathLabel)
 
         setupBtn(chooseFolderBtn, title: "Choose Folder", action: #selector(onChooseFolder))
-        setupBtn(randomBtn, title: "Random", action: #selector(onRandomWallpaper))
+        setupBtn(randomBtn, title: "Random Wallpaper", action: #selector(onRandomWallpaper))
 
         scrollView.hasVerticalScroller = true
         scrollView.drawsBackground = false
@@ -2465,9 +2679,9 @@ class WallpaperPickerView: NSView {
         titleLabel.frame = NSRect(x: 12, y: h - 28, width: 180, height: 18)
         pathLabel.frame = NSRect(x: 200, y: h - 28, width: w - 212, height: 18)
 
-        let btnW: CGFloat = 120, btnH: CGFloat = 24
+        let btnW: CGFloat = 125, btnH: CGFloat = 24
         chooseFolderBtn.frame = NSRect(x: 12, y: h - 58, width: btnW, height: btnH)
-        randomBtn.frame = NSRect(x: 12 + btnW + 8, y: h - 58, width: 90, height: btnH)
+        randomBtn.frame = NSRect(x: 12 + btnW + 8, y: h - 58, width: 135, height: btnH)
 
         let scrollY: CGFloat = 12
         let scrollH = h - 58 - 12 - 8
@@ -2562,16 +2776,6 @@ class WallpaperPickerView: NSView {
         }
     }
 
-    @objc private func onRandomWallpaper() {
-        guard !imageURLs.isEmpty else { return }
-        let url = imageURLs[Int.random(in: 0..<imageURLs.count)]
-        activeWallpaperURL = url
-        let win = self.window
-        CenterWallpaperTransitionManager.shared.animateAndSetWallpaper(url: url) {
-            win?.orderOut(nil)
-        }
-    }
-
     @objc private func onChooseFolder() {
         let panel = NSOpenPanel()
         panel.canChooseFiles = false
@@ -2589,6 +2793,20 @@ class WallpaperPickerView: NSView {
         }
     }
 
+    @objc private func onRandomWallpaper() {
+        guard !imageURLs.isEmpty else { return }
+        let randomIndex = Int.random(in: 0..<imageURLs.count)
+        let targetURL = imageURLs[randomIndex]
+        activeWallpaperURL = targetURL
+        let win = self.window
+        CenterWallpaperTransitionManager.shared.animateAndSetWallpaper(url: targetURL) { [weak self] in
+            win?.orderOut(nil)
+            DispatchQueue.main.async {
+                self?.renderGrid()
+            }
+        }
+    }
+
     private func listenForThemeChanges() {
         DistributedNotificationCenter.default().addObserver(self, selector: #selector(onThemeChanged), name: ThemeManager.notifName, object: nil)
     }
@@ -2598,7 +2816,7 @@ class WallpaperPickerView: NSView {
             CATransaction.begin()
             CATransaction.setDisableActions(true)
             let p = ThemeManager.shared.currentPreset
-            self.layer?.backgroundColor = p.bgColor.cgColor
+            self.layer?.backgroundColor = ThemeManager.shared.currentBgColor.cgColor
             self.layer?.cornerRadius = p.cornerRadius
             self.layer?.borderColor = NSColor.clear.cgColor
             self.layer?.borderWidth = 0
@@ -2614,6 +2832,113 @@ class WallpaperPickerView: NSView {
             }
             self.updateThemeRecursively(preset: p)
             self.renderGrid()
+            CATransaction.commit()
+            self.needsDisplay = true
+        }
+    }
+}
+
+// MARK: - 14. FONT & COLOR CUSTOMIZER WIDGET (tutustyles - Option + E)
+class ThemeCustomizerView: NSView {
+    let widgetKey = "theme_customizer"
+
+    private let titleLabel     = NSTextField()
+    private let cardView       = NSView()
+
+    private let fontPickerBtn  = NSButton()
+    private let textWheelBtn   = NSButton()
+    private let bgWheelBtn     = NSButton()
+    private let bwBtn          = NSButton()
+    private let resetBtn       = NSButton()
+
+    private var dragStart: NSPoint = .zero, initialWinOrigin: NSPoint = .zero, dragActive = false
+
+    override init(frame: NSRect) {
+        super.init(frame: frame)
+        build()
+        listenForThemeChanges()
+    }
+    required init?(coder: NSCoder) { fatalError() }
+
+    private func build() {
+        wantsLayer = true
+        layer?.cornerRadius = kRadius
+        layer?.borderWidth = 0
+        layer?.borderColor = NSColor.clear.cgColor
+        layer?.backgroundColor = ThemeManager.shared.currentBgColor.cgColor
+
+        titleLabel.stringValue = "FONT & COLOR CUSTOMIZER (OPTION + E)"
+        titleLabel.font = dynamicFont(size: 11, weight: .bold)
+        titleLabel.textColor = kText
+        titleLabel.isEditable = false; titleLabel.isBordered = false; titleLabel.backgroundColor = .clear
+        addSubview(titleLabel)
+
+        cardView.wantsLayer = true
+        cardView.layer?.cornerRadius = kRadius / 2
+        cardView.layer?.backgroundColor = kSurface.cgColor
+        cardView.layer?.borderWidth = kBorderWidth
+        cardView.layer?.borderColor = kBorder.cgColor
+        addSubview(cardView)
+
+        setupBtn(fontPickerBtn, title: "Font", action: #selector(openFontPicker))
+        setupBtn(textWheelBtn, title: "Text Colour", action: #selector(openTextColorWheel))
+        setupBtn(bgWheelBtn, title: "Widget Colour", action: #selector(openBgColorWheel))
+        setupBtn(bwBtn, title: "Black and White", action: #selector(applyBlackAndWhite))
+        setupBtn(resetBtn, title: "Reset", action: #selector(resetStyles))
+    }
+
+    private func setupBtn(_ btn: NSButton, title: String, action: Selector) {
+        btn.title = title
+        btn.font = dynamicFont(size: 10, weight: .bold)
+        btn.isBordered = false; btn.wantsLayer = true; btn.layer?.cornerRadius = kRadius / 2
+        btn.layer?.backgroundColor = kAccent.cgColor; btn.layer?.borderWidth = kBorderWidth; btn.layer?.borderColor = kBorder.cgColor
+        btn.contentTintColor = kSurface
+        btn.target = self; btn.action = action; cardView.addSubview(btn)
+    }
+
+    @objc private func openTextColorWheel() { ColorPanelDelegate.shared.openColorWheel(for: .text, initialColor: kText) }
+    @objc private func openBgColorWheel() { ColorPanelDelegate.shared.openColorWheel(for: .bg, initialColor: kBg) }
+    @objc private func openFontPicker() { FontPanelDelegate.shared.openFontPicker() }
+    @objc private func applyBlackAndWhite() {
+        ThemeManager.shared.customTextColor = NSColor.white
+        ThemeManager.shared.customBgColor = NSColor.black
+    }
+    @objc private func resetStyles() { ThemeManager.shared.resetCustomStyles() }
+
+    override func layout() {
+        super.layout()
+        let w = bounds.width, h = bounds.height
+        titleLabel.frame = NSRect(x: 14, y: h - 24, width: w - 28, height: 16)
+        cardView.frame = NSRect(x: 12, y: 10, width: w - 24, height: h - 34)
+
+        let rowH: CGFloat = 26
+        let btnY = (cardView.bounds.height - rowH) / 2
+
+        fontPickerBtn.frame = NSRect(x: 10,  y: btnY, width: 75,  height: rowH)
+        textWheelBtn.frame  = NSRect(x: 90,  y: btnY, width: 95,  height: rowH)
+        bgWheelBtn.frame    = NSRect(x: 190, y: btnY, width: 105, height: rowH)
+        bwBtn.frame         = NSRect(x: 300, y: btnY, width: 110, height: rowH)
+        resetBtn.frame      = NSRect(x: 415, y: btnY, width: 55,  height: rowH)
+    }
+
+    private func listenForThemeChanges() {
+        NotificationCenter.default.addObserver(self, selector: #selector(onThemeChanged), name: ThemeManager.notifName, object: nil)
+        DistributedNotificationCenter.default().addObserver(self, selector: #selector(onThemeChanged), name: ThemeManager.notifName, object: nil)
+    }
+    @objc private func onThemeChanged() {
+        DispatchQueue.main.async {
+            CATransaction.begin()
+            CATransaction.setDisableActions(true)
+            let p = ThemeManager.shared.currentPreset
+            self.layer?.backgroundColor = ThemeManager.shared.currentBgColor.cgColor
+            self.layer?.cornerRadius = p.cornerRadius
+            self.layer?.borderColor = NSColor.clear.cgColor
+            self.layer?.borderWidth = 0
+            self.cardView.layer?.cornerRadius = p.cornerRadius / 2
+            self.cardView.layer?.backgroundColor = p.surfaceColor.cgColor
+            self.cardView.layer?.borderColor = p.borderColor.cgColor
+            self.cardView.layer?.borderWidth = p.borderWidth
+            self.updateThemeRecursively(preset: p)
             CATransaction.commit()
             self.needsDisplay = true
         }
@@ -2647,7 +2972,9 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     var windows: [NSWindow] = []
     var widgetWindows: [String: NSWindow] = [:]
     var wallpaperWindow: NSWindow?
-    private var hotKeyRef: EventHotKeyRef?
+    var themeCustomizerWindow: NSWindow?
+    private var wallpaperHotKeyRef: EventHotKeyRef?
+    private var themeHotKeyRef: EventHotKeyRef?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         // Register Distributed Notification IPC observer
@@ -2721,13 +3048,21 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         let collageWin = addWindow(rect: NSRect(origin: collageOrigin, size: defaultCollageRect.size), view: AlbumCollageView(frame: NSRect(origin: collageOrigin, size: defaultCollageRect.size)))
         widgetWindows["album_collage"] = collageWin
 
-        // 13. Wallpaper Switcher Widget (tutuwallpaper)
+        // 13. Wallpaper Switcher Widget (tutuwallpaper - Option + W)
         let defaultWallRect = NSRect(x: 320, y: 300, width: 680, height: 420)
         let wallOrigin = PositionManager.shared.getPosition(key: "wallpaper_switcher", defaultOrigin: defaultWallRect.origin)
         let wallWin = addWindow(rect: NSRect(origin: wallOrigin, size: defaultWallRect.size), view: WallpaperPickerView(frame: NSRect(origin: wallOrigin, size: defaultWallRect.size)))
         wallpaperWindow = wallWin
         widgetWindows["wallpaper_switcher"] = wallWin
-        setupWallpaperHotkey()
+
+        // 14. Theme & Style Customizer Widget (tutustyles - Option + E)
+        let defaultStyleRect = NSRect(x: 320, y: 150, width: 505, height: 75)
+        let styleOrigin = PositionManager.shared.getPosition(key: "theme_customizer", defaultOrigin: defaultStyleRect.origin)
+        let styleWin = addWindow(rect: NSRect(origin: styleOrigin, size: defaultStyleRect.size), view: ThemeCustomizerView(frame: NSRect(origin: styleOrigin, size: defaultStyleRect.size)))
+        themeCustomizerWindow = styleWin
+        widgetWindows["theme_customizer"] = styleWin
+
+        setupHotkeys()
     }
 
     @objc private func handleIPCControlNotification(_ notif: Notification) {
@@ -2738,7 +3073,41 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             if action == "kill_app" {
                 NSApp.terminate(nil)
                 return
+            } else if action == "set_font" {
+                if let fontName = userInfo["value"] {
+                    ThemeManager.shared.customFontName = fontName
+                }
+                return
+            } else if action == "set_text_color" {
+                if let val = userInfo["value"], let col = NSColor(hex: val) {
+                    ThemeManager.shared.customTextColor = col
+                }
+                return
+            } else if action == "set_bg_color" {
+                if let val = userInfo["value"], let col = NSColor(hex: val) {
+                    ThemeManager.shared.customBgColor = col
+                }
+                return
+            } else if action == "set_accent_color" {
+                if let val = userInfo["value"], let col = NSColor(hex: val) {
+                    ThemeManager.shared.customAccentColor = col
+                }
+                return
+            } else if action == "reset_styles" {
+                ThemeManager.shared.resetCustomStyles()
+                return
+            } else if action == "set_bw" || action == "black_and_white" {
+                ThemeManager.shared.customTextColor = NSColor.white
+                ThemeManager.shared.customBgColor = NSColor.black
+                return
+            } else if action == "open_color_picker" {
+                ColorPanelDelegate.shared.openColorWheel(for: .text, initialColor: kText)
+                return
+            } else if action == "open_font_picker" {
+                FontPanelDelegate.shared.openFontPicker()
+                return
             }
+
             guard let rawWidgetKey = userInfo["widget"] else { return }
             let widgetKey = self.canonicalWidgetKey(rawWidgetKey)
             guard let win = self.widgetWindows[widgetKey] else { return }
@@ -2774,24 +3143,37 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         case "timetable", "schedule": return "timetable"
         case "collage", "album", "album_collage": return "album_collage"
         case "wallpaper", "switcher", "wallpaper_switcher": return "wallpaper_switcher"
+        case "theme", "styles", "style", "theme_customizer": return "theme_customizer"
         default: return key
         }
     }
 
-    private func setupWallpaperHotkey() {
-        let hotKeyID = EventHotKeyID(signature: OSType(0x57414C4C), id: 1)
+    private func setupHotkeys() {
         var eventType = EventTypeSpec(eventClass: OSType(kEventClassKeyboard), eventKind: UInt32(kEventHotKeyPressed))
         
         InstallEventHandler(GetApplicationEventTarget(), { (_, eventRef, userPtr) -> OSStatus in
-            guard let ptr = userPtr else { return noErr }
+            guard let ptr = userPtr, let event = eventRef else { return noErr }
+            var hkID = EventHotKeyID()
+            GetEventParameter(event, EventParamName(kEventParamDirectObject), EventParamType(typeEventHotKeyID), nil, MemoryLayout<EventHotKeyID>.size, nil, &hkID)
+            
             let appDelegate = Unmanaged<AppDelegate>.fromOpaque(ptr).takeUnretainedValue()
             DispatchQueue.main.async {
-                appDelegate.toggleWallpaperWindow()
+                if hkID.id == 1 {
+                    appDelegate.toggleWallpaperWindow()
+                } else if hkID.id == 2 {
+                    appDelegate.toggleThemeCustomizerWindow()
+                }
             }
             return noErr
         }, 1, &eventType, Unmanaged.passUnretained(self).toOpaque(), nil)
 
-        RegisterEventHotKey(13, UInt32(optionKey), hotKeyID, GetApplicationEventTarget(), 0, &hotKeyRef)
+        // Option + W (KeyCode 13) -> Wallpaper Switcher
+        let wallHotKeyID = EventHotKeyID(signature: OSType(0x57414C4C), id: 1)
+        RegisterEventHotKey(13, UInt32(optionKey), wallHotKeyID, GetApplicationEventTarget(), 0, &wallpaperHotKeyRef)
+
+        // Option + E (KeyCode 14) -> Theme & Style Customizer
+        let themeHotKeyID = EventHotKeyID(signature: OSType(0x5448454D), id: 2)
+        RegisterEventHotKey(14, UInt32(optionKey), themeHotKeyID, GetApplicationEventTarget(), 0, &themeHotKeyRef)
     }
 
     func toggleWallpaperWindow() {
@@ -2799,14 +3181,17 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         if win.isVisible {
             win.orderOut(nil)
         } else {
-            // Only open wallpaper picker when user is active on Desktop (Finder) or CustomER itself
-            if let activeApp = NSWorkspace.shared.frontmostApplication {
-                let bundleID = activeApp.bundleIdentifier ?? ""
-                let isDesktopActive = (bundleID == "com.apple.finder" || bundleID == "com.user.CustomERApp" || activeApp.processIdentifier == ProcessInfo.processInfo.processIdentifier)
-                if !isDesktopActive {
-                    return
-                }
-            }
+            win.level = .floating
+            win.makeKeyAndOrderFront(nil)
+            NSApp.activate(ignoringOtherApps: true)
+        }
+    }
+
+    func toggleThemeCustomizerWindow() {
+        guard let win = themeCustomizerWindow else { return }
+        if win.isVisible {
+            win.orderOut(nil)
+        } else {
             win.level = .floating
             win.makeKeyAndOrderFront(nil)
             NSApp.activate(ignoringOtherApps: true)

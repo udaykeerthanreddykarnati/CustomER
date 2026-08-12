@@ -17,6 +17,12 @@ Designed to live directly on your desktop background, below normal app windows a
   - Crossfades smoothly (`0.65s`) into the updated desktop with zero jump or flickering.
   - Uses `CALayer.contentsGravity = .resizeAspectFill` to match native macOS display cropping 1:1 without image distortion or stretching.
 
+### 2. Style & Theme Customizer Widget & Hotkey (`Option + E`)
+- **Global Hotkey**: Press `Option + E` anywhere on macOS to open the floating **Font & Color Customizer**.
+- **Isolated Color Wheels**: Open native `NSColorPanel` for text color and widget background color without affecting fixed design accents.
+- **System Font Selector**: Open native `NSFontPanel` to select any font installed on your Mac with PostScript name lookup.
+- **One-Click Black & White Mode**: Instantly switch to pure white text on black widget cards (`widgets bw`).
+
 ### 2. Battery & Connected Bluetooth Devices Widget (`tutubattery`)
 - **Mac System Battery**: Real-time battery percentage and charging/AC power indicator via `IOKit.pwr_mgt`.
 - **Live Bluetooth Devices**: Queries macOS `IOBluetooth` framework directly (`IOBluetoothDevice.pairedDevices()`) for connected headphones, earbuds (e.g. AirPods, Noise Buds, soundcore), keyboards, and mice.
@@ -119,6 +125,14 @@ widgets kill spotify     # Hides spotify widget
 # Show / Open a specific widget
 widgets show calendar
 widgets show spotify
+
+# Custom Font & Color Wheel Control
+widgets font                       # Opens native macOS Font Panel (choose any font installed on your Mac!)
+widgets font "Avenir Next"         # Set specific font (e.g. Menlo, Helvetica Neue, Optima, Futura)
+widgets color text                 # Opens native macOS Color Wheel for text color
+widgets color text #FF5500         # Set text color hex
+widgets color bg #1E1E2E           # Set background color hex
+widgets reset                      # Reset custom colors & fonts back to default theme
 
 # Toggle visibility of a specific widget
 widgets toggle calendar
