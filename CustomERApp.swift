@@ -2993,8 +2993,10 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             object: nil
         )
 
-        // Sync Desktop Folder Icons with Widget Theme
-        FolderIconManager.updateDesktopFolderIcons(bgColor: ThemeManager.shared.currentBgColor)
+        // Sync Desktop Folder Icons with Widget Theme asynchronously so launch completes instantly
+        DispatchQueue.global(qos: .utility).async {
+            FolderIconManager.updateDesktopFolderIcons(bgColor: ThemeManager.shared.currentBgColor)
+        }
 
         // 1. Reminders (tututodo)
         let defaultTodoRect = NSRect(x: 5, y: 616, width: 280, height: 440)
