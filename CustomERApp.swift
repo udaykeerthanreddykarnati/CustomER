@@ -1361,7 +1361,7 @@ class ColorPickerView: NSView {
     private let textSwatchesContainer = NSView()
     private let textPickerBtn = NSButton()
 
-    private var dragStart: NSPoint = .zero, dragActive = false
+    private var dragStart: NSPoint = .zero, initialWinOrigin: NSPoint = .zero, dragActive = false
     private var activePickerMode: String = "bg"
     
     private let bgPresetHexes   = ["#FEF9C3", "#090D16", "#FFE3F1", "#E0F2FE", "#F3E8FF", "#DCFCE7", "#F5EBE0"]
@@ -1540,11 +1540,11 @@ class ColorPickerView: NSView {
         }
     }
 
-    override func mouseDown(with event: NSEvent) { dragStart = event.locationInWindow; dragActive = true; window?.makeKey() }
+    override func mouseDown(with event: NSEvent) { dragStart = NSEvent.mouseLocation; if let w = window { initialWinOrigin = w.frame.origin }; dragActive = true; window?.makeKey() }
     override func mouseDragged(with event: NSEvent) {
         guard dragActive, let w = window else { return }
-        let c = event.locationInWindow
-        w.setFrameOrigin(NSPoint(x: w.frame.origin.x + c.x - dragStart.x, y: w.frame.origin.y + c.y - dragStart.y))
+        let c = NSEvent.mouseLocation
+        w.setFrameOrigin(NSPoint(x: initialWinOrigin.x + (c.x - dragStart.x), y: initialWinOrigin.y + (c.y - dragStart.y)))
     }
     override func mouseUp(with event: NSEvent) {
         dragActive = false
@@ -2451,11 +2451,11 @@ class TimetableWidgetView: NSView {
         }
     }
 
-    override func mouseDown(with event: NSEvent) { dragStart = event.locationInWindow; dragActive = true; window?.makeKey() }
+    override func mouseDown(with event: NSEvent) { dragStart = NSEvent.mouseLocation; if let w = window { initialWinOrigin = w.frame.origin }; dragActive = true; window?.makeKey() }
     override func mouseDragged(with event: NSEvent) {
         guard dragActive, let w = window else { return }
-        let c = event.locationInWindow
-        w.setFrameOrigin(NSPoint(x: w.frame.origin.x + c.x - dragStart.x, y: w.frame.origin.y + c.y - dragStart.y))
+        let c = NSEvent.mouseLocation
+        w.setFrameOrigin(NSPoint(x: initialWinOrigin.x + (c.x - dragStart.x), y: initialWinOrigin.y + (c.y - dragStart.y)))
     }
     override func mouseUp(with event: NSEvent) {
         dragActive = false
@@ -2989,74 +2989,74 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         FolderIconManager.updateDesktopFolderIcons(bgColor: ThemeManager.shared.currentBgColor)
 
         // 1. Reminders (tututodo)
-        let defaultTodoRect = NSRect(x: 24, y: 600, width: 280, height: 440)
+        let defaultTodoRect = NSRect(x: 5, y: 616, width: 280, height: 440)
         let todoOrigin = PositionManager.shared.getPosition(key: "reminders", defaultOrigin: defaultTodoRect.origin)
         let todoWin = addWindow(rect: NSRect(origin: todoOrigin, size: defaultTodoRect.size), view: TodoView(frame: NSRect(origin: todoOrigin, size: defaultTodoRect.size)))
         widgetWindows["reminders"] = todoWin
 
         // 2. Calendar
-        let defaultCalRect = NSRect(x: 24, y: 350, width: 280, height: 230)
+        let defaultCalRect = NSRect(x: 294, y: 331, width: 280, height: 230)
         let calOrigin = PositionManager.shared.getPosition(key: "calendar", defaultOrigin: defaultCalRect.origin)
         let calWin = addWindow(rect: NSRect(origin: calOrigin, size: defaultCalRect.size), view: CalendarView(frame: NSRect(origin: calOrigin, size: defaultCalRect.size)))
         widgetWindows["calendar"] = calWin
 
         // 3. Battery
-        let defaultBatRect = NSRect(x: 24, y: 50, width: 280, height: 280)
+        let defaultBatRect = NSRect(x: 6, y: 331, width: 280, height: 280)
         let batOrigin = PositionManager.shared.getPosition(key: "battery", defaultOrigin: defaultBatRect.origin)
         let batWin = addWindow(rect: NSRect(origin: batOrigin, size: defaultBatRect.size), view: BatteryView(frame: NSRect(origin: batOrigin, size: defaultBatRect.size)))
         widgetWindows["battery"] = batWin
 
         // 4. Digital Clock
-        let defaultClockRect = NSRect(x: 320, y: 930, width: 280, height: 110)
+        let defaultClockRect = NSRect(x: 294, y: 695, width: 280, height: 110)
         let clockOrigin = PositionManager.shared.getPosition(key: "digital_clock", defaultOrigin: defaultClockRect.origin)
         let clockWin = addWindow(rect: NSRect(origin: clockOrigin, size: defaultClockRect.size), view: DigitalClockView(frame: NSRect(origin: clockOrigin, size: defaultClockRect.size)))
         widgetWindows["digital_clock"] = clockWin
 
         // 6. Circular Analog Clock
-        let defaultAnalogRect = NSRect(x: 613, y: 827, width: 220, height: 220)
+        let defaultAnalogRect = NSRect(x: 317, y: 830, width: 220, height: 220)
         let analogOrigin = PositionManager.shared.getPosition(key: "analog_clock", defaultOrigin: defaultAnalogRect.origin)
         let analogWin = addWindow(rect: NSRect(origin: analogOrigin, size: defaultAnalogRect.size), view: AnalogClockView(frame: NSRect(origin: analogOrigin, size: defaultAnalogRect.size)))
         widgetWindows["analog_clock"] = analogWin
 
         // 7. Spotify Player
-        let defaultSpotRect = NSRect(x: 872, y: 905, width: 280, height: 130)
+        let defaultSpotRect = NSRect(x: 716, y: 782, width: 280, height: 130)
         let spotOrigin = PositionManager.shared.getPosition(key: "spotify", defaultOrigin: defaultSpotRect.origin)
         let spotWin = addWindow(rect: NSRect(origin: spotOrigin, size: defaultSpotRect.size), view: SpotifyView(frame: NSRect(origin: spotOrigin, size: defaultSpotRect.size)))
         widgetWindows["spotify"] = spotWin
 
         // 8. Roblox Dance GIF
-        let defaultGifRect = NSRect(x: 268, y: 694, width: 196, height: 196)
+        let defaultGifRect = NSRect(x: 526, y: 861, width: 196, height: 196)
         let gifOrigin = PositionManager.shared.getPosition(key: "gif", defaultOrigin: defaultGifRect.origin)
         let gifWin = addWindow(rect: NSRect(origin: gifOrigin, size: defaultGifRect.size), view: GifView(frame: NSRect(origin: gifOrigin, size: defaultGifRect.size)))
         widgetWindows["gif"] = gifWin
 
         // 10. Apple Mail Unread Widget
-        let defaultMailRect = NSRect(x: 320, y: 165, width: 280, height: 110)
+        let defaultMailRect = NSRect(x: 293, y: 573, width: 280, height: 110)
         let mailOrigin = PositionManager.shared.getPosition(key: "mail", defaultOrigin: defaultMailRect.origin)
         let mailWin = addWindow(rect: NSRect(origin: mailOrigin, size: defaultMailRect.size), view: MailView(frame: NSRect(origin: mailOrigin, size: defaultMailRect.size)))
         widgetWindows["mail"] = mailWin
 
         // 11. Timetable Vector Widget (tutotimetable - Wide Format)
-        let defaultTTRect = NSRect(x: 320, y: 440, width: 680, height: 220)
+        let defaultTTRect = NSRect(x: 4, y: 103, width: 680, height: 220)
         let ttOrigin = PositionManager.shared.getPosition(key: "timetable", defaultOrigin: defaultTTRect.origin)
         let ttWin = addWindow(rect: NSRect(origin: ttOrigin, size: defaultTTRect.size), view: TimetableWidgetView(frame: NSRect(origin: ttOrigin, size: defaultTTRect.size)))
         widgetWindows["timetable"] = ttWin
 
         // 12. 6x6 Album Collage Widget
-        let defaultCollageRect = NSRect(x: 1050, y: 80, width: 640, height: 640)
+        let defaultCollageRect = NSRect(x: 1053, y: 101, width: 640, height: 640)
         let collageOrigin = PositionManager.shared.getPosition(key: "album_collage", defaultOrigin: defaultCollageRect.origin)
         let collageWin = addWindow(rect: NSRect(origin: collageOrigin, size: defaultCollageRect.size), view: AlbumCollageView(frame: NSRect(origin: collageOrigin, size: defaultCollageRect.size)))
         widgetWindows["album_collage"] = collageWin
 
         // 13. Wallpaper Switcher Widget (tutuwallpaper - Option + W)
-        let defaultWallRect = NSRect(x: 320, y: 300, width: 680, height: 420)
+        let defaultWallRect = NSRect(x: 269, y: 241, width: 680, height: 420)
         let wallOrigin = PositionManager.shared.getPosition(key: "wallpaper_switcher", defaultOrigin: defaultWallRect.origin)
         let wallWin = addWindow(rect: NSRect(origin: wallOrigin, size: defaultWallRect.size), view: WallpaperPickerView(frame: NSRect(origin: wallOrigin, size: defaultWallRect.size)))
         wallpaperWindow = wallWin
         widgetWindows["wallpaper_switcher"] = wallWin
 
         // 14. Theme & Style Customizer Widget (tutustyles - Option + E)
-        let defaultStyleRect = NSRect(x: 320, y: 150, width: 505, height: 75)
+        let defaultStyleRect = NSRect(x: 612, y: 540, width: 505, height: 75)
         let styleOrigin = PositionManager.shared.getPosition(key: "theme_customizer", defaultOrigin: defaultStyleRect.origin)
         let styleWin = addWindow(rect: NSRect(origin: styleOrigin, size: defaultStyleRect.size), view: ThemeCustomizerView(frame: NSRect(origin: styleOrigin, size: defaultStyleRect.size)))
         themeCustomizerWindow = styleWin
