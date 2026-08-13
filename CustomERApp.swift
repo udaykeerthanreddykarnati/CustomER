@@ -2985,6 +2985,14 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             object: nil
         )
 
+        // Automatically hide floating customizer and wallpaper widgets when switching to any application
+        NSWorkspace.shared.notificationCenter.addObserver(
+            self,
+            selector: #selector(activeAppDidChange(_:)),
+            name: NSWorkspace.didActivateApplicationNotification,
+            object: nil
+        )
+
         // Sync Desktop Folder Icons with Widget Theme
         FolderIconManager.updateDesktopFolderIcons(bgColor: ThemeManager.shared.currentBgColor)
 
@@ -3205,6 +3213,16 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             win.level = .floating
             win.makeKeyAndOrderFront(nil)
             NSApp.activate(ignoringOtherApps: true)
+        }
+    }
+
+    @objc private func activeAppDidChange(_ notif: Notification) {
+        guard let app = notif.userInfo?[NSWorkspace.applicationUserInfoKey] as? NSRunningApplication else { return }
+        let bundleID = app.bundleIdentifier ?? ""
+        let isDesktopActive = (bundleID == "com.apple.finder" || bundleID == "com.user.CustomERApp" || app.processIdentifier == ProcessInfo.processInfo.processIdentifier)
+        if !isDesktopActive {
+            wallpaperWindow?.orderOut(nil)
+            themeCustomizerWindow?.orderOut(nil)
         }
     }
 
