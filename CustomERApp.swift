@@ -2867,7 +2867,7 @@ class ThemeCustomizerView: NSView {
         layer?.borderColor = NSColor.clear.cgColor
         layer?.backgroundColor = ThemeManager.shared.currentBgColor.cgColor
 
-        titleLabel.stringValue = "FONT & COLOR CUSTOMIZER (OPTION + E)"
+        titleLabel.stringValue = "THEME CHANGER"
         titleLabel.font = dynamicFont(size: 11, weight: .bold)
         titleLabel.textColor = kText
         titleLabel.isEditable = false; titleLabel.isBordered = false; titleLabel.backgroundColor = .clear
@@ -3181,6 +3181,11 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         if win.isVisible {
             win.orderOut(nil)
         } else {
+            if let activeApp = NSWorkspace.shared.frontmostApplication {
+                let bundleID = activeApp.bundleIdentifier ?? ""
+                let isDesktopActive = (bundleID == "com.apple.finder" || bundleID == "com.user.CustomERApp" || activeApp.processIdentifier == ProcessInfo.processInfo.processIdentifier)
+                if !isDesktopActive { return }
+            }
             win.level = .floating
             win.makeKeyAndOrderFront(nil)
             NSApp.activate(ignoringOtherApps: true)
@@ -3192,6 +3197,11 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         if win.isVisible {
             win.orderOut(nil)
         } else {
+            if let activeApp = NSWorkspace.shared.frontmostApplication {
+                let bundleID = activeApp.bundleIdentifier ?? ""
+                let isDesktopActive = (bundleID == "com.apple.finder" || bundleID == "com.user.CustomERApp" || activeApp.processIdentifier == ProcessInfo.processInfo.processIdentifier)
+                if !isDesktopActive { return }
+            }
             win.level = .floating
             win.makeKeyAndOrderFront(nil)
             NSApp.activate(ignoringOtherApps: true)
