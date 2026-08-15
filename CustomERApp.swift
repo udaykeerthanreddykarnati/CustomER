@@ -2968,11 +2968,14 @@ class ThemeCustomizerView: NSView {
     }
 }
 
+
+
 class AppDelegate: NSObject, NSApplicationDelegate {
     var windows: [NSWindow] = []
     var widgetWindows: [String: NSWindow] = [:]
     var wallpaperWindow: NSWindow?
     var themeCustomizerWindow: NSWindow?
+
     private var wallpaperHotKeyRef: EventHotKeyRef?
     private var themeHotKeyRef: EventHotKeyRef?
 
