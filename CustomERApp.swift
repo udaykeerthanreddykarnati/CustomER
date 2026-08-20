@@ -2912,9 +2912,9 @@ class WallpaperPickerView: NSView {
            FileManager.default.fileExists(atPath: savedPath) {
             return URL(fileURLWithPath: savedPath)
         }
-        let mywallPath = "/Users/udayk/Pictures/mywall"
-        if FileManager.default.fileExists(atPath: mywallPath) {
-            return URL(fileURLWithPath: mywallPath)
+        let mywallURL = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Pictures/mywall")
+        if FileManager.default.fileExists(atPath: mywallURL.path) {
+            return mywallURL
         }
         return FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Pictures")
     }()
