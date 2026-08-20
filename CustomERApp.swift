@@ -525,8 +525,29 @@ struct Reminder: Codable {
     var id: UUID
     var title: String
     var isCompleted: Bool
+    var isStarred: Bool
     var createdAt: Date
-    init(title: String) { self.id = UUID(); self.title = title; self.isCompleted = false; self.createdAt = Date() }
+
+    init(title: String, isStarred: Bool = false) {
+        self.id = UUID()
+        self.title = title
+        self.isCompleted = false
+        self.isStarred = isStarred
+        self.createdAt = Date()
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case id, title, isCompleted, isStarred, createdAt
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        id = try container.decode(UUID.self, forKey: .id)
+        title = try container.decode(String.self, forKey: .title)
+        isCompleted = try container.decode(Bool.self, forKey: .isCompleted)
+        isStarred = try container.decodeIfPresent(Bool.self, forKey: .isStarred) ?? false
+        createdAt = try container.decodeIfPresent(Date.self, forKey: .createdAt) ?? Date()
+    }
 }
 
 class ReminderStore {
@@ -547,20 +568,25 @@ class ReminderStore {
     func save() { try? JSONEncoder().encode(items).write(to: url) }
     func add(_ r: Reminder) { items.append(r); save() }
     func toggle(id: UUID) { if let i = items.firstIndex(where: { $0.id == id }) { items[i].isCompleted.toggle(); save() } }
+    func toggleStar(id: UUID) { if let i = items.firstIndex(where: { $0.id == id }) { items[i].isStarred.toggle(); save() } }
     func delete(id: UUID) { items.removeAll { $0.id == id }; save() }
     func clearCompleted() { items.removeAll { $0.isCompleted }; save() }
     func updateTitle(id: UUID, title: String) { if let i = items.firstIndex(where: { $0.id == id }) { items[i].title = title; save() } }
 }
 
 class ReminderRowView: NSView {
-    var reminder: Reminder
-    var onToggle: ((UUID) -> Void)?
-    var onDelete: ((UUID) -> Void)?
-    var onEdit:   ((UUID, String) -> Void)?
+    var reminder: Reminder {
+        didSet { updateUI() }
+    }
+    var onToggle:     ((UUID) -> Void)?
+    var onStarToggle: ((UUID) -> Void)?
+    var onDelete:     ((UUID) -> Void)?
+    var onEdit:       ((UUID, String) -> Void)?
 
-    private let check = NSButton()
-    private let label = NSTextField()
-    private let del   = NSButton()
+    private let check   = NSButton()
+    private let label   = NSTextField()
+    private let starBtn = NSButton()
+    private let del     = NSButton()
 
     init(_ reminder: Reminder) {
         self.reminder = reminder
@@ -574,28 +600,19 @@ class ReminderRowView: NSView {
 
         check.isBordered = false; check.bezelStyle = .regularSquare; check.setButtonType(.momentaryChange)
         check.wantsLayer = true; check.layer?.cornerRadius = 4; check.layer?.borderWidth = kBorderWidth; check.layer?.borderColor = kBorder.cgColor
-        check.layer?.backgroundColor = reminder.isCompleted ? kBorder.cgColor : NSColor.clear.cgColor
-        if reminder.isCompleted {
-            check.attributedTitle = NSAttributedString(string: "✓", attributes: [.font: dynamicFont(size: 10, weight: .bold), .foregroundColor: NSColor.white])
-        } else { check.title = "" }
         check.target = self; check.action = #selector(toggleTapped); addSubview(check)
 
         label.isBordered = false; label.backgroundColor = .clear; label.isEditable = false
-        label.font = dynamicFont(size: 13, weight: .medium); label.lineBreakMode = .byTruncatingTail
-        if reminder.isCompleted {
-            let s = NSMutableAttributedString(string: reminder.title)
-            let r = NSRange(location: 0, length: reminder.title.count)
-            s.addAttribute(.strikethroughStyle, value: NSUnderlineStyle.single.rawValue, range: r)
-            s.addAttribute(.foregroundColor, value: kDim, range: r)
-            label.attributedStringValue = s
-        } else {
-            label.stringValue = reminder.title
-            label.textColor = kText
-        }
+        label.lineBreakMode = .byTruncatingTail
         let dclick = NSClickGestureRecognizer(target: self, action: #selector(editTapped))
         dclick.numberOfClicksRequired = 2
         label.addGestureRecognizer(dclick)
         addSubview(label)
+
+        starBtn.isBordered = false; starBtn.wantsLayer = true; starBtn.layer?.cornerRadius = 5
+        starBtn.layer?.borderWidth = kBorderWidth; starBtn.layer?.borderColor = kBorder.cgColor
+        starBtn.target = self; starBtn.action = #selector(starTapped)
+        addSubview(starBtn)
 
         del.title = "✕"; del.font = dynamicFont(size: 10); del.isBordered = false
         del.contentTintColor = kDim; del.target = self; del.action = #selector(deleteTapped); del.alphaValue = 0
@@ -603,30 +620,89 @@ class ReminderRowView: NSView {
 
         let area = NSTrackingArea(rect: .zero, options: [.mouseEnteredAndExited, .activeAlways, .inVisibleRect], owner: self, userInfo: nil)
         addTrackingArea(area)
+
+        updateUI()
+    }
+
+    func updateUI() {
+        check.layer?.backgroundColor = reminder.isCompleted ? kBorder.cgColor : NSColor.clear.cgColor
+        if reminder.isCompleted {
+            check.attributedTitle = NSAttributedString(string: "✓", attributes: [.font: dynamicFont(size: 10, weight: .bold), .foregroundColor: NSColor.white])
+        } else { check.title = "" }
+
+        if reminder.isCompleted {
+            let s = NSMutableAttributedString(string: reminder.title)
+            let r = NSRange(location: 0, length: reminder.title.count)
+            s.addAttribute(.strikethroughStyle, value: NSUnderlineStyle.single.rawValue, range: r)
+            s.addAttribute(.foregroundColor, value: kDim, range: r)
+            label.attributedStringValue = s
+            layer?.borderWidth = 0.0
+            layer?.borderColor = NSColor.clear.cgColor
+            starBtn.layer?.backgroundColor = NSColor.clear.cgColor
+            starBtn.layer?.borderColor = kBorder.withAlphaComponent(0.3).cgColor
+            starBtn.attributedTitle = NSAttributedString(string: "★", attributes: [.font: dynamicFont(size: 12, weight: .bold), .foregroundColor: kDim.withAlphaComponent(0.4)])
+            starBtn.alphaValue = 0.4
+        } else if reminder.isStarred {
+            let starAmber = NSColor(hex: "#F59E0B")!
+            label.stringValue = reminder.title
+            label.textColor = starAmber
+            label.font = dynamicFont(size: 13, weight: .bold)
+            layer?.borderWidth = kBorderWidth + 0.5
+            layer?.borderColor = starAmber.withAlphaComponent(0.6).cgColor
+            starBtn.layer?.backgroundColor = starAmber.cgColor
+            starBtn.layer?.borderColor = NSColor(hex: "#D97706")!.cgColor
+            starBtn.attributedTitle = NSAttributedString(string: "★", attributes: [.font: dynamicFont(size: 13, weight: .bold), .foregroundColor: NSColor.white])
+            starBtn.alphaValue = 1.0
+        } else {
+            label.stringValue = reminder.title
+            label.textColor = kText
+            label.font = dynamicFont(size: 13, weight: .medium)
+            layer?.borderWidth = 0.0
+            layer?.borderColor = NSColor.clear.cgColor
+            starBtn.layer?.backgroundColor = NSColor.clear.cgColor
+            starBtn.layer?.borderColor = kBorder.cgColor
+            starBtn.attributedTitle = NSAttributedString(string: "★", attributes: [.font: dynamicFont(size: 12, weight: .bold), .foregroundColor: kDim.withAlphaComponent(0.6)])
+            starBtn.alphaValue = 0.6
+        }
     }
 
     override func layout() {
         super.layout()
         let h = bounds.height, w = bounds.width
-        check.frame = NSRect(x: 10, y: (h-18)/2, width: 18, height: 18)
-        del.frame   = NSRect(x: w-26, y: (h-18)/2, width: 20, height: 18)
-        label.frame = NSRect(x: 36, y: (h-18)/2, width: w - 66, height: 18)
+        check.frame   = NSRect(x: 10, y: (h-18)/2, width: 18, height: 18)
+        starBtn.frame = NSRect(x: w - 52, y: (h-24)/2, width: 24, height: 24)
+        del.frame     = NSRect(x: w - 24, y: (h-18)/2, width: 18, height: 18)
+        label.frame   = NSRect(x: 34, y: (h-18)/2, width: w - 90, height: 18)
     }
 
     override func mouseEntered(with event: NSEvent) {
         NSAnimationContext.runAnimationGroup { ctx in
-            ctx.duration = 0.10; del.animator().alphaValue = 0.9; layer?.borderWidth = kBorderWidth
-            layer?.borderColor = kBorder.cgColor
+            ctx.duration = 0.10; del.animator().alphaValue = 0.9
+            if !reminder.isStarred && !reminder.isCompleted {
+                starBtn.animator().alphaValue = 0.9
+            }
+            if !reminder.isStarred {
+                layer?.borderWidth = kBorderWidth
+                layer?.borderColor = kBorder.cgColor
+            }
             layer?.backgroundColor = kSurface.withAlphaComponent(0.85).cgColor
         }
     }
     override func mouseExited(with event: NSEvent) {
         NSAnimationContext.runAnimationGroup { ctx in
-            ctx.duration = 0.10; del.animator().alphaValue = 0; layer?.borderWidth = 0.0; layer?.backgroundColor = kSurface.cgColor
+            ctx.duration = 0.10; del.animator().alphaValue = 0
+            if !reminder.isStarred && !reminder.isCompleted {
+                starBtn.animator().alphaValue = 0.5
+            }
+            if !reminder.isStarred {
+                layer?.borderWidth = 0.0
+            }
+            layer?.backgroundColor = kSurface.cgColor
         }
     }
 
     @objc func toggleTapped() { onToggle?(reminder.id) }
+    @objc func starTapped()   { onStarToggle?(reminder.id) }
     @objc func deleteTapped()  { onDelete?(reminder.id) }
     @objc func editTapped() {
         guard let window = self.window else { return }
@@ -804,7 +880,13 @@ class TodoView: NSView {
     }
 
     private func filtered() -> [Reminder] {
-        return filterIdx == 1 ? ReminderStore.shared.items.filter { $0.isCompleted } : ReminderStore.shared.items.filter { !$0.isCompleted }
+        let raw = filterIdx == 1 ? ReminderStore.shared.items.filter { $0.isCompleted } : ReminderStore.shared.items.filter { !$0.isCompleted }
+        return raw.sorted { a, b in
+            if a.isStarred != b.isStarred {
+                return a.isStarred && !b.isStarred
+            }
+            return a.createdAt > b.createdAt
+        }
     }
 
     func reload() {
@@ -822,9 +904,10 @@ class TodoView: NSView {
                 existing.reminder = r
             } else {
                 let row = ReminderRowView(r)
-                row.onToggle = { [weak self] id in self?.doToggle(id) }
-                row.onDelete = { [weak self] id in self?.doDelete(id) }
-                row.onEdit   = { [weak self] id, t in self?.doEdit(id, t) }
+                row.onToggle     = { [weak self] id in self?.doToggle(id) }
+                row.onStarToggle = { [weak self] id in self?.doStarToggle(id) }
+                row.onDelete     = { [weak self] id in self?.doDelete(id) }
+                row.onEdit       = { [weak self] id, t in self?.doEdit(id, t) }
                 list.addSubview(row)
                 rows[r.id] = row
             }
@@ -864,6 +947,7 @@ class TodoView: NSView {
 
     private func doAdd(_ r: Reminder) { ReminderStore.shared.add(r); hidePanel(); reload() }
     private func doToggle(_ id: UUID) { ReminderStore.shared.toggle(id: id); reload() }
+    private func doStarToggle(_ id: UUID) { ReminderStore.shared.toggleStar(id: id); reload() }
     private func doDelete(_ id: UUID) { ReminderStore.shared.delete(id: id); reload() }
     private func doEdit(_ id: UUID, _ title: String) { ReminderStore.shared.updateTitle(id: id, title: title); reload() }
     @objc func clearDone() { ReminderStore.shared.clearCompleted(); reload() }
@@ -897,6 +981,62 @@ class TodoView: NSView {
     override func mouseUp(with event: NSEvent) {
         dragActive = false
         if let w = window { PositionManager.shared.savePosition(key: widgetKey, origin: w.frame.origin) }
+    }
+}
+
+// MARK: - CALENDAR EVENT STORE
+struct CalendarEvent: Codable {
+    var id: UUID
+    var dateKey: String // "YYYY-MM-DD"
+    var title: String
+    var createdAt: Date
+
+    init(id: UUID = UUID(), dateKey: String, title: String, createdAt: Date = Date()) {
+        self.id = id
+        self.dateKey = dateKey
+        self.title = title
+        self.createdAt = createdAt
+    }
+}
+
+class CalendarEventStore {
+    static let shared = CalendarEventStore()
+    private let url: URL = {
+        let dir = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
+            .appendingPathComponent("tututodoWidget")
+        try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        return dir.appendingPathComponent("calendar_events.json")
+    }()
+    private(set) var events: [CalendarEvent] = []
+    private init() { load() }
+
+    func load() {
+        guard let data = try? Data(contentsOf: url),
+              let decoded = try? JSONDecoder().decode([CalendarEvent].self, from: data) else { return }
+        events = decoded
+    }
+    func save() {
+        try? JSONEncoder().encode(events).write(to: url)
+    }
+    func events(for dateKey: String) -> [CalendarEvent] {
+        return events.filter { $0.dateKey == dateKey }
+    }
+    func hasEvents(for dateKey: String) -> Bool {
+        return events.contains { $0.dateKey == dateKey }
+    }
+    func add(_ ev: CalendarEvent) {
+        events.append(ev)
+        save()
+    }
+    func updateTitle(id: UUID, title: String) {
+        if let idx = events.firstIndex(where: { $0.id == id }) {
+            events[idx].title = title
+            save()
+        }
+    }
+    func delete(id: UUID) {
+        events.removeAll { $0.id == id }
+        save()
     }
 }
 
@@ -939,6 +1079,9 @@ class CalendarView: NSView {
         for _ in 0..<35 {
             let lbl = NSTextField(); lbl.font = dynamicFont(size: 11, weight: .bold); lbl.alignment = .center
             lbl.isEditable = false; lbl.isBordered = false; lbl.backgroundColor = .clear; lbl.wantsLayer = true; lbl.layer?.cornerRadius = 6
+            let dclick = NSClickGestureRecognizer(target: self, action: #selector(dayDoubleClicked(_:)))
+            dclick.numberOfClicksRequired = 2
+            lbl.addGestureRecognizer(dclick)
             addSubview(lbl); dayViews.append(lbl)
         }
         updateCalendar()
@@ -974,7 +1117,12 @@ class CalendarView: NSView {
             let c = i % 7 // Column 0=Sun, 1=Mon, 2=Tue, 3=Wed, 4=Thu, 5=Fri, 6=Sat
 
             if dNum >= 1 && dNum <= numDays {
-                lbl.stringValue = "\(dNum)"
+                lbl.tag = dNum
+                let dateKey = String(format: "%04d-%02d-%02d", year, month, dNum)
+                let hasEv = CalendarEventStore.shared.hasEvents(for: dateKey)
+                let evDot = hasEv ? " •" : ""
+
+                lbl.stringValue = "\(dNum)\(evDot)"
                 if dNum == today {
                     lbl.backgroundColor = kAccent
                     lbl.textColor = (ThemeManager.shared.currentPreset == .glass || ThemeManager.shared.currentPreset == .childish) ? .white : kSurface
@@ -987,6 +1135,12 @@ class CalendarView: NSView {
                     } else {
                         lbl.layer?.borderColor = NSColor.clear.cgColor
                     }
+                } else if hasEv {
+                    lbl.font = dynamicFont(size: 11, weight: .bold)
+                    lbl.backgroundColor = (NSColor(hex: "#8B5CF6") ?? kAccent).withAlphaComponent(0.25)
+                    lbl.textColor = (ThemeManager.shared.currentPreset == .glass) ? (NSColor(hex: "#C4B5FD") ?? kText) : (NSColor(hex: "#6D28D9") ?? kText)
+                    lbl.layer?.borderWidth = 1.5
+                    lbl.layer?.borderColor = (NSColor(hex: "#8B5CF6") ?? kAccent).withAlphaComponent(0.6).cgColor
                 } else {
                     lbl.font = dynamicFont(size: 11, weight: .medium)
                     if c == 1 || c == 4 { // Give Laundry (Mon / Thu)
@@ -1007,10 +1161,166 @@ class CalendarView: NSView {
                     }
                 }
             } else {
+                lbl.tag = 0
                 lbl.stringValue = ""
                 lbl.backgroundColor = .clear
                 lbl.layer?.borderWidth = 0
                 lbl.layer?.borderColor = NSColor.clear.cgColor
+            }
+        }
+    }
+
+    @objc private func dayDoubleClicked(_ sender: NSClickGestureRecognizer) {
+        guard let lbl = sender.view as? NSTextField, lbl.tag > 0 else { return }
+        let day = lbl.tag
+
+        let cal = Calendar.current, now = Date()
+        let comp = cal.dateComponents([.year, .month], from: now)
+        let year = comp.year!, month = comp.month!
+        let dateKey = String(format: "%04d-%02d-%02d", year, month, day)
+
+        manageEvents(for: dateKey, day: day, month: month, year: year)
+    }
+
+    private func manageEvents(for dateKey: String, day: Int, month: Int, year: Int) {
+        guard let window = self.window else { return }
+        let evList = CalendarEventStore.shared.events(for: dateKey)
+
+        var dateComp = DateComponents(); dateComp.year = year; dateComp.month = month; dateComp.day = day
+        let dateObj = Calendar.current.date(from: dateComp) ?? Date()
+        let df = DateFormatter(); df.dateFormat = "MMMM d, yyyy"
+        let dateTitle = df.string(from: dateObj)
+
+        let alert = NSAlert()
+        alert.messageText = "Events for \(dateTitle)"
+
+        if evList.isEmpty {
+            alert.informativeText = "No events scheduled for this day."
+        } else {
+            let evLines = evList.enumerated().map { "\($0.offset + 1). \($0.element.title)" }.joined(separator: "\n")
+            alert.informativeText = "Scheduled Events (\(evList.count)):\n\(evLines)"
+        }
+
+        alert.addButton(withTitle: "+ Add Event")
+        if !evList.isEmpty {
+            alert.addButton(withTitle: "Edit Event")
+            alert.addButton(withTitle: "Delete Event")
+        }
+        alert.addButton(withTitle: "Cancel")
+
+        alert.beginSheetModal(for: window) { [weak self] resp in
+            guard let self = self else { return }
+            if resp == .alertFirstButtonReturn {
+                self.promptAddEvent(dateKey: dateKey, dateTitle: dateTitle)
+            } else if resp == .alertSecondButtonReturn && !evList.isEmpty {
+                self.promptEditEvent(dateKey: dateKey, dateTitle: dateTitle, events: evList)
+            } else if resp == .alertThirdButtonReturn && !evList.isEmpty {
+                self.promptDeleteEvent(dateKey: dateKey, dateTitle: dateTitle, events: evList)
+            }
+        }
+    }
+
+    private func promptAddEvent(dateKey: String, dateTitle: String) {
+        guard let window = self.window else { return }
+        let alert = NSAlert()
+        alert.messageText = "Add Event for \(dateTitle)"
+        alert.addButton(withTitle: "Add")
+        alert.addButton(withTitle: "Cancel")
+
+        let tf = NSTextField(frame: NSRect(x: 0, y: 0, width: 260, height: 24))
+        let pAttrs: [NSAttributedString.Key: Any] = [.foregroundColor: kDim, .font: dynamicFont(size: 12, weight: .medium)]
+        tf.placeholderAttributedString = NSAttributedString(string: "Event title (e.g. Meeting @ 3PM)", attributes: pAttrs)
+        alert.accessoryView = tf
+
+        alert.beginSheetModal(for: window) { [weak self] resp in
+            if resp == .alertFirstButtonReturn {
+                let t = tf.stringValue.trimmingCharacters(in: .whitespaces)
+                if !t.isEmpty {
+                    CalendarEventStore.shared.add(CalendarEvent(dateKey: dateKey, title: t))
+                    self?.updateCalendar()
+                }
+            }
+        }
+        DispatchQueue.main.async { tf.becomeFirstResponder() }
+    }
+
+    private func promptEditEvent(dateKey: String, dateTitle: String, events: [CalendarEvent]) {
+        guard let window = self.window else { return }
+        if events.count == 1 {
+            let ev = events[0]
+            promptSingleEdit(ev: ev, dateTitle: dateTitle)
+        } else {
+            let alert = NSAlert()
+            alert.messageText = "Select Event to Edit (\(dateTitle))"
+            alert.addButton(withTitle: "Edit Selected")
+            alert.addButton(withTitle: "Cancel")
+
+            let pop = NSPopUpButton(frame: NSRect(x: 0, y: 0, width: 260, height: 26))
+            for ev in events {
+                pop.addItem(withTitle: ev.title)
+            }
+            alert.accessoryView = pop
+
+            alert.beginSheetModal(for: window) { [weak self] resp in
+                guard let self = self else { return }
+                if resp == .alertFirstButtonReturn {
+                    let idx = pop.indexOfSelectedItem
+                    if idx >= 0 && idx < events.count {
+                        self.promptSingleEdit(ev: events[idx], dateTitle: dateTitle)
+                    }
+                }
+            }
+        }
+    }
+
+    private func promptSingleEdit(ev: CalendarEvent, dateTitle: String) {
+        guard let window = self.window else { return }
+        let alert = NSAlert()
+        alert.messageText = "Edit Event (\(dateTitle))"
+        alert.addButton(withTitle: "Save")
+        alert.addButton(withTitle: "Cancel")
+
+        let tf = NSTextField(frame: NSRect(x: 0, y: 0, width: 260, height: 24))
+        tf.stringValue = ev.title
+        alert.accessoryView = tf
+
+        alert.beginSheetModal(for: window) { [weak self] resp in
+            if resp == .alertFirstButtonReturn {
+                let newT = tf.stringValue.trimmingCharacters(in: .whitespaces)
+                if !newT.isEmpty {
+                    CalendarEventStore.shared.updateTitle(id: ev.id, title: newT)
+                    self?.updateCalendar()
+                }
+            }
+        }
+        DispatchQueue.main.async { tf.becomeFirstResponder() }
+    }
+
+    private func promptDeleteEvent(dateKey: String, dateTitle: String, events: [CalendarEvent]) {
+        guard let window = self.window else { return }
+        if events.count == 1 {
+            CalendarEventStore.shared.delete(id: events[0].id)
+            self.updateCalendar()
+        } else {
+            let alert = NSAlert()
+            alert.messageText = "Select Event to Delete (\(dateTitle))"
+            alert.addButton(withTitle: "Delete Selected")
+            alert.addButton(withTitle: "Cancel")
+
+            let pop = NSPopUpButton(frame: NSRect(x: 0, y: 0, width: 260, height: 26))
+            for ev in events {
+                pop.addItem(withTitle: ev.title)
+            }
+            alert.accessoryView = pop
+
+            alert.beginSheetModal(for: window) { [weak self] resp in
+                if resp == .alertFirstButtonReturn {
+                    let idx = pop.indexOfSelectedItem
+                    if idx >= 0 && idx < events.count {
+                        CalendarEventStore.shared.delete(id: events[idx].id)
+                        self?.updateCalendar()
+                    }
+                }
             }
         }
     }

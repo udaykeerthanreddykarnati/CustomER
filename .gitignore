@@ -11,6 +11,7 @@ CustomERApp_Test
 CustomERApp_ChildishTest
 bin/
 build/
+ClipManager/
 
 # User Data & Private Credentials
 gmail.json
