@@ -6,7 +6,7 @@ Designed to live directly on your desktop background with zero third-party depen
 
 ---
 
-## ⚡ Quick Start (1-Line Install & Run)
+## Quick Start (1-Line Install & Run)
 
 ```bash
 git clone https://github.com/udaykeerthanreddykarnati/CustomER.git && cd CustomER && swiftc -O CustomERApp.swift -framework AppKit -framework Carbon -framework IOKit -framework IOBluetooth -o CustomERApp && ./CustomERApp &
@@ -14,7 +14,7 @@ git clone https://github.com/udaykeerthanreddykarnati/CustomER.git && cd CustomE
 
 ---
 
-## 📦 Step-by-Step Installation Guide
+## Step-by-Step Installation Guide
 
 ### Prerequisites
 - **macOS 12.0 (Monterey)** or later
@@ -49,7 +49,7 @@ mv CustomERApp ~/.local/bin/
 
 ---
 
-## ⌨️ Global Hotkeys
+## Global Hotkeys
 
 - **`Option + W`**: Toggle floating Wallpaper Picker grid.
 - **`Option + E`**: Toggle Style & Theme Customizer (Fonts, Color Wheel, Presets).
@@ -57,7 +57,7 @@ mv CustomERApp ~/.local/bin/
 
 ---
 
-## ✨ Key Features & Widgets
+## Key Features & Widgets
 
 - **Reminders (`tututodo`)**: Star mark (`★`) priority sorting with warm amber highlight, double-click inline editing, and active/done tabs.
 - **Monthly Calendar (`tutucalendar`)**: Double-click any date to view, add, edit, or delete events for that day. Event dot indicators (`•`) and laundry schedule.
@@ -68,7 +68,7 @@ mv CustomERApp ~/.local/bin/
 
 ---
 
-## 💻 Terminal Commands (`widgets`)
+## Terminal Commands (`widgets`)
 
 CustomER includes IPC control via macOS `DistributedNotificationCenter`:
 
