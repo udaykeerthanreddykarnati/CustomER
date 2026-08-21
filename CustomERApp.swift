@@ -2468,8 +2468,8 @@ class TimetableWidgetView: NSView {
             let cellW = colX[i+1] - cellX
             let y = boundsH - rowH
 
-            let label = createLabel(text: hText, size: 9.0, weight: .bold, color: kText, align: .center)
-            label.frame = NSRect(x: cellX, y: y + (rowH - 18)/2, width: cellW, height: 18)
+            let label = createLabel(text: hText, size: 8.5, weight: .bold, color: kText, align: .center)
+            label.frame = NSRect(x: cellX, y: y + (rowH - 14)/2, width: cellW, height: 14)
             cardView.addSubview(label)
         }
 
@@ -2504,8 +2504,8 @@ class TimetableWidgetView: NSView {
 
             let dayX = colX[0]
             let dayW = colX[1] - dayX
-            let dLabel = createLabel(text: dayName, size: 10, weight: isToday ? .black : .bold, color: isToday ? kAccent : kText, align: .center)
-            dLabel.frame = NSRect(x: dayX + 2, y: y + (rowH - 16)/2, width: dayW - 4, height: 16)
+            let dLabel = createLabel(text: dayName, size: 9.5, weight: isToday ? .black : .bold, color: isToday ? kAccent : kText, align: .center)
+            dLabel.frame = NSRect(x: dayX + 1, y: y + (rowH - 14)/2, width: dayW - 2, height: 14)
             cardView.addSubview(dLabel)
 
             let items = getMergedItems(for: dayName)
@@ -2514,15 +2514,15 @@ class TimetableWidgetView: NSView {
                 let cx2 = colX[item.startCol + item.span]
                 let cw = cx2 - cx1
 
-                let cellBox = NSView(frame: NSRect(x: cx1 + 2, y: y + 2, width: cw - 4, height: rowH - 4))
+                let cellBox = NSView(frame: NSRect(x: cx1 + 1, y: y + 1, width: cw - 2, height: rowH - 2))
                 cellBox.wantsLayer = true
-                cellBox.layer?.cornerRadius = 4.0
-                cellBox.layer?.borderWidth = 1.0
-                cellBox.layer?.borderColor = kBorder.withAlphaComponent(0.5).cgColor
+                cellBox.layer?.cornerRadius = 3.0
+                cellBox.layer?.borderWidth = 0.5
+                cellBox.layer?.borderColor = kBorder.withAlphaComponent(0.4).cgColor
                 cellBox.layer?.backgroundColor = colorForSubject(item.code).cgColor
 
-                let cLabel = createLabel(text: item.code, size: item.span > 1 ? 11 : 10, weight: .bold, color: kText, align: .center)
-                cLabel.frame = NSRect(x: 0, y: (rowH - 4 - 16)/2, width: cw - 4, height: 16)
+                let cLabel = createLabel(text: item.code, size: item.span > 1 ? 10.5 : 9.5, weight: .bold, color: kText, align: .center)
+                cLabel.frame = NSRect(x: 0, y: (rowH - 2 - 14)/2, width: cw - 2, height: 14)
                 cellBox.addSubview(cLabel)
 
                 cardView.addSubview(cellBox)
@@ -2560,8 +2560,8 @@ class TimetableWidgetView: NSView {
     override func layout() {
         super.layout()
         let w = bounds.width, h = bounds.height
-        titleLabel.frame = NSRect(x: 14, y: h - 26, width: 200, height: 18)
-        cardView.frame   = NSRect(x: 10, y: 10, width: w - 20, height: h - 36)
+        titleLabel.frame = NSRect(x: 14, y: h - 22, width: 200, height: 16)
+        cardView.frame   = NSRect(x: 10, y: 6, width: w - 20, height: h - 28)
         renderGrid()
     }
 
@@ -3183,9 +3183,10 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         widgetWindows["mail"] = mailWin
 
         // 11. Timetable Vector Widget (tutotimetable - Wide Format)
-        let defaultTTRect = NSRect(x: 4, y: 103, width: 680, height: 220)
+        let defaultTTRect = NSRect(x: 4, y: 103, width: 540, height: 148)
         let ttOrigin = PositionManager.shared.getPosition(key: "timetable", defaultOrigin: defaultTTRect.origin)
         let ttWin = addWindow(rect: NSRect(origin: ttOrigin, size: defaultTTRect.size), view: TimetableWidgetView(frame: NSRect(origin: ttOrigin, size: defaultTTRect.size)))
+        ttWin.setContentSize(NSSize(width: 540, height: 148))
         widgetWindows["timetable"] = ttWin
 
         // 13. Wallpaper Switcher Widget (tutuwallpaper - Option + W)
