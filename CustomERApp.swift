@@ -1862,85 +1862,6 @@ class ColorPickerView: NSView {
     }
 }
 
-// MARK: - 6. CIRCULAR ANALOG CLOCK WIDGET (tutuclockcircle)
-class AnalogClockView: NSView {
-    let widgetKey = "analog_clock"
-    private var timer: Timer?, dragStart: NSPoint = .zero, initialWinOrigin: NSPoint = .zero, dragActive = false
-
-    override init(frame: NSRect) { super.init(frame: frame); build(); startTimer(); listenForThemeChanges() }
-    required init?(coder: NSCoder) { fatalError() }
-
-    private func build() {
-        wantsLayer = true; layer?.cornerRadius = bounds.width / 2.0
-        layer?.backgroundColor = ThemeManager.shared.currentBgColor.cgColor
-        layer?.borderWidth = 0; layer?.borderColor = NSColor.clear.cgColor
-    }
-
-    private func startTimer() { timer = Timer.scheduledTimer(withTimeInterval: 1.0, repeats: true) { [weak self] _ in self?.needsDisplay = true } }
-
-    override func draw(_ dirtyRect: NSRect) {
-        super.draw(dirtyRect)
-        guard let ctx = NSGraphicsContext.current?.cgContext else { return }
-        let center = CGPoint(x: bounds.midX, y: bounds.midY), radius = bounds.width / 2.0 - 10.0
-
-        ctx.setStrokeColor(kText.cgColor); ctx.setLineWidth(kBorderWidth > 1.0 ? kBorderWidth : 1.5)
-        ctx.addEllipse(in: CGRect(x: center.x - radius, y: center.y - radius, width: radius * 2, height: radius * 2)); ctx.strokePath()
-
-        for i in 0..<12 {
-            let angle = CGFloat(i) * (CGFloat.pi / 6.0), innerR = radius - 8.0
-            ctx.move(to: CGPoint(x: center.x + radius * sin(angle), y: center.y + radius * cos(angle)))
-            ctx.addLine(to: CGPoint(x: center.x + innerR * sin(angle), y: center.y + innerR * cos(angle))); ctx.strokePath()
-        }
-
-        let cal = Calendar.current, comp = cal.dateComponents([.hour, .minute, .second], from: Date())
-        let sec = CGFloat(comp.second!), min = CGFloat(comp.minute!) + sec / 60.0, hr = CGFloat(comp.hour! % 12) + min / 60.0
-
-        let hrAngle = hr * (CGFloat.pi / 6.0), hrLen = radius * 0.5
-        ctx.setLineWidth(3.5); ctx.setStrokeColor(kText.cgColor)
-        ctx.move(to: center); ctx.addLine(to: CGPoint(x: center.x + hrLen * sin(hrAngle), y: center.y + hrLen * cos(hrAngle))); ctx.strokePath()
-
-        let minAngle = min * (CGFloat.pi / 30.0), minLen = radius * 0.7
-        ctx.setLineWidth(2.0); ctx.setStrokeColor(kText.cgColor)
-        ctx.move(to: center); ctx.addLine(to: CGPoint(x: center.x + minLen * sin(minAngle), y: center.y + minLen * cos(minAngle))); ctx.strokePath()
-
-        let secAngle = sec * (CGFloat.pi / 30.0), secLen = radius * 0.85
-        ctx.setLineWidth(1.5); ctx.setStrokeColor(kAccent.cgColor)
-        ctx.move(to: center); ctx.addLine(to: CGPoint(x: center.x + secLen * sin(secAngle), y: center.y + secLen * cos(secAngle))); ctx.strokePath()
-
-        ctx.setFillColor(kText.cgColor); ctx.addEllipse(in: CGRect(x: center.x - 4, y: center.y - 4, width: 8, height: 8)); ctx.fillPath()
-    }
-
-    private func listenForThemeChanges() {
-        NotificationCenter.default.addObserver(self, selector: #selector(onThemeChanged), name: ThemeManager.notifName, object: nil)
-        DistributedNotificationCenter.default().addObserver(self, selector: #selector(onThemeChanged), name: ThemeManager.notifName, object: nil)
-    }
-    @objc private func onThemeChanged() {
-        DispatchQueue.main.async {
-            CATransaction.begin()
-            CATransaction.setDisableActions(true)
-            let p = ThemeManager.shared.currentPreset
-            self.layer?.backgroundColor = ThemeManager.shared.currentBgColor.cgColor
-            self.layer?.cornerRadius = self.bounds.width / 2.0
-            self.layer?.borderColor = NSColor.clear.cgColor
-            self.layer?.borderWidth = 0
-            self.updateThemeRecursively(preset: p)
-            CATransaction.commit()
-            self.needsDisplay = true
-        }
-    }
-
-    override func mouseDown(with event: NSEvent) { dragStart = NSEvent.mouseLocation; if let w = window { initialWinOrigin = w.frame.origin }; dragActive = true; window?.makeKey() }
-    override func mouseDragged(with event: NSEvent) {
-        guard dragActive, let w = window else { return }
-        let c = NSEvent.mouseLocation
-        w.setFrameOrigin(NSPoint(x: initialWinOrigin.x + (c.x - dragStart.x), y: initialWinOrigin.y + (c.y - dragStart.y)))
-    }
-    override func mouseUp(with event: NSEvent) {
-        dragActive = false
-        if let w = window { PositionManager.shared.savePosition(key: widgetKey, origin: w.frame.origin) }
-    }
-}
-
 // MARK: - 7. SPOTIFY LIVE PLAYER WIDGET (tutuspotify)
 class AudioEqualizerView: NSView {
     var isPlaying: Bool = false { didSet { isPlaying ? startAnimation() : stopAnimation() } }
@@ -2408,99 +2329,6 @@ class MailView: NSView {
             }
         }
     }
-    override func mouseDragged(with event: NSEvent) {
-        guard dragActive, let w = window else { return }
-        let c = NSEvent.mouseLocation
-        w.setFrameOrigin(NSPoint(x: initialWinOrigin.x + (c.x - dragStart.x), y: initialWinOrigin.y + (c.y - dragStart.y)))
-    }
-    override func mouseUp(with event: NSEvent) {
-        dragActive = false
-        if let w = window { PositionManager.shared.savePosition(key: widgetKey, origin: w.frame.origin) }
-    }
-}
-
-// MARK: - 11. 6x6 ALBUM COLLAGE WIDGET (tutucollage)
-class AlbumCollageView: NSView {
-    let widgetKey = "album_collage"
-    private var dragStart: NSPoint = .zero, initialWinOrigin: NSPoint = .zero, dragActive = false
-    private var imageViews: [NSImageView] = []
-
-    override init(frame: NSRect) {
-        super.init(frame: frame)
-        build()
-        listenForThemeChanges()
-    }
-    required init?(coder: NSCoder) { fatalError() }
-
-    private func build() {
-        wantsLayer = true
-        layer?.cornerRadius = 0.0
-        layer?.borderWidth = 0
-        layer?.borderColor = NSColor.clear.cgColor
-        layer?.backgroundColor = NSColor.clear.cgColor
-
-        let folders = (1...36).map { $0 == 1 ? "CustomERPhotos" : "CustomERPhotos\($0)" }
-        let ext = ["jpg", "jpeg", "png", "heic", "webp"]
-        let baseDir = FileManager.default.urls(for: .picturesDirectory, in: .userDomainMask)[0]
-
-        for folder in folders {
-            let iv = NSImageView()
-            iv.wantsLayer = true
-            iv.layer?.cornerRadius = 0.0
-            iv.imageScaling = .scaleAxesIndependently
-            iv.imageAlignment = .alignCenter
-            
-            let dir = baseDir.appendingPathComponent(folder)
-            if let files = try? FileManager.default.contentsOfDirectory(at: dir, includingPropertiesForKeys: nil),
-               let photo = files.filter({ ext.contains($0.pathExtension.lowercased()) }).sorted(by: { $0.lastPathComponent < $1.lastPathComponent }).first,
-               let img = NSImage.downsampledImage(at: photo, targetSize: NSSize(width: 180, height: 180)) {
-                iv.image = img
-            }
-            addSubview(iv)
-            imageViews.append(iv)
-        }
-    }
-
-    override func layout() {
-        super.layout()
-        let w = bounds.width, h = bounds.height
-
-        let tileSize = min((w - 5 * 8) / 6, (h - 5 * 8) / 6)
-
-        var idx = 0
-        for row in 0..<6 {
-            for col in 0..<6 {
-                if idx < imageViews.count {
-                    let x = CGFloat(col) * (tileSize + 8)
-                    let y = CGFloat(5 - row) * (tileSize + 8)
-                    imageViews[idx].frame = NSRect(x: x, y: y, width: tileSize, height: tileSize)
-                    idx += 1
-                }
-            }
-        }
-    }
-
-    private func listenForThemeChanges() {
-        NotificationCenter.default.addObserver(self, selector: #selector(onThemeChanged), name: ThemeManager.notifName, object: nil)
-        DistributedNotificationCenter.default().addObserver(self, selector: #selector(onThemeChanged), name: ThemeManager.notifName, object: nil)
-    }
-    @objc private func onThemeChanged() {
-        DispatchQueue.main.async {
-            CATransaction.begin()
-            CATransaction.setDisableActions(true)
-            self.layer?.backgroundColor = NSColor.clear.cgColor
-            self.layer?.cornerRadius = 0.0
-            self.layer?.borderColor = NSColor.clear.cgColor
-            self.layer?.borderWidth = 0
-            for iv in self.imageViews {
-                iv.layer?.cornerRadius = 0.0
-            }
-            CATransaction.commit()
-            self.needsDisplay = true
-        }
-    }
-
-    override func mouseDown(with event: NSEvent) { dragStart = NSEvent.mouseLocation; if let w = window { initialWinOrigin = w.frame.origin }; dragActive = true; window?.makeKey() }
     override func mouseDragged(with event: NSEvent) {
         guard dragActive, let w = window else { return }
         let c = NSEvent.mouseLocation
@@ -3288,6 +3116,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
     private var wallpaperHotKeyRef: EventHotKeyRef?
     private var themeHotKeyRef: EventHotKeyRef?
+    private var desktopHotKeyRef: EventHotKeyRef?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         // Register Distributed Notification IPC observer
@@ -3335,12 +3164,6 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         let clockWin = addWindow(rect: NSRect(origin: clockOrigin, size: defaultClockRect.size), view: DigitalClockView(frame: NSRect(origin: clockOrigin, size: defaultClockRect.size)))
         widgetWindows["digital_clock"] = clockWin
 
-        // 6. Circular Analog Clock
-        let defaultAnalogRect = NSRect(x: 317, y: 830, width: 220, height: 220)
-        let analogOrigin = PositionManager.shared.getPosition(key: "analog_clock", defaultOrigin: defaultAnalogRect.origin)
-        let analogWin = addWindow(rect: NSRect(origin: analogOrigin, size: defaultAnalogRect.size), view: AnalogClockView(frame: NSRect(origin: analogOrigin, size: defaultAnalogRect.size)))
-        widgetWindows["analog_clock"] = analogWin
-
         // 7. Spotify Player
         let defaultSpotRect = NSRect(x: 716, y: 782, width: 280, height: 130)
         let spotOrigin = PositionManager.shared.getPosition(key: "spotify", defaultOrigin: defaultSpotRect.origin)
@@ -3364,12 +3187,6 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         let ttOrigin = PositionManager.shared.getPosition(key: "timetable", defaultOrigin: defaultTTRect.origin)
         let ttWin = addWindow(rect: NSRect(origin: ttOrigin, size: defaultTTRect.size), view: TimetableWidgetView(frame: NSRect(origin: ttOrigin, size: defaultTTRect.size)))
         widgetWindows["timetable"] = ttWin
-
-        // 12. 6x6 Album Collage Widget
-        let defaultCollageRect = NSRect(x: 1053, y: 101, width: 640, height: 640)
-        let collageOrigin = PositionManager.shared.getPosition(key: "album_collage", defaultOrigin: defaultCollageRect.origin)
-        let collageWin = addWindow(rect: NSRect(origin: collageOrigin, size: defaultCollageRect.size), view: AlbumCollageView(frame: NSRect(origin: collageOrigin, size: defaultCollageRect.size)))
-        widgetWindows["album_collage"] = collageWin
 
         // 13. Wallpaper Switcher Widget (tutuwallpaper - Option + W)
         let defaultWallRect = NSRect(x: 269, y: 241, width: 680, height: 420)
@@ -3485,6 +3302,8 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                     appDelegate.toggleWallpaperWindow()
                 } else if hkID.id == 2 {
                     appDelegate.toggleThemeCustomizerWindow()
+                } else if hkID.id == 3 {
+                    appDelegate.toggleDesktopIcons()
                 }
             }
             return noErr
@@ -3497,6 +3316,25 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         // Option + E (KeyCode 14) -> Theme & Style Customizer
         let themeHotKeyID = EventHotKeyID(signature: OSType(0x5448454D), id: 2)
         RegisterEventHotKey(14, UInt32(optionKey), themeHotKeyID, GetApplicationEventTarget(), 0, &themeHotKeyRef)
+
+        // Option + D (KeyCode 2) -> Toggle Desktop Icons & Folders
+        let deskHotKeyID = EventHotKeyID(signature: OSType(0x4445534B), id: 3)
+        RegisterEventHotKey(2, UInt32(optionKey), deskHotKeyID, GetApplicationEventTarget(), 0, &desktopHotKeyRef)
+    }
+
+    @objc func toggleDesktopIcons() {
+        let current = UserDefaults(suiteName: "com.apple.finder")?.bool(forKey: "CreateDesktop") ?? true
+        let nextVal = !current
+        let p1 = Process()
+        p1.executableURL = URL(fileURLWithPath: "/usr/bin/defaults")
+        p1.arguments = ["write", "com.apple.finder", "CreateDesktop", "-bool", nextVal ? "true" : "false"]
+        try? p1.run()
+        p1.waitUntilExit()
+
+        let p2 = Process()
+        p2.executableURL = URL(fileURLWithPath: "/usr/bin/killall")
+        p2.arguments = ["Finder"]
+        try? p2.run()
     }
 
     func toggleWallpaperWindow() {
