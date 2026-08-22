@@ -59,6 +59,7 @@ mv CustomERApp ~/.local/bin/
 
 ## Key Features & Widgets
 
+- **Dynamic Island Notch Widget (`notch`)**: Floating Spotify pill at top-center. Collapses into a 148×36 midnight pill with animated equalizer, expanding on track change or hover to 360×80 with album art and playback controls.
 - **Reminders (`tututodo`)**: Star mark (`★`) priority sorting with warm amber highlight, double-click inline editing, and active/done tabs.
 - **Monthly Calendar (`tutucalendar`)**: Double-click any date to view, add, edit, or delete events for that day. Event dot indicators (`•`) and laundry schedule.
 - **Vector Timetable (`tutotimetable`)**: Compact class schedule grid with auto-highlighting for today's active classes.
@@ -75,7 +76,7 @@ CustomER includes IPC control via macOS `DistributedNotificationCenter`:
 ```bash
 widgets                # Launch / restart desktop widgets
 widgets kill           # Hide all widgets
-widgets show calendar  # Show specific widget
+widgets show notch     # Show Dynamic Island Spotify Notch
 widgets kill battery   # Hide specific widget
 widgets font "Menlo"   # Set custom font
 widgets reset          # Reset colors & fonts back to default theme

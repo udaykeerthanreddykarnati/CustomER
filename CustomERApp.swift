@@ -499,6 +499,9 @@ func runScript(_ code: String) -> String {
     proc.standardError = Pipe()
     do {
         try proc.run()
+        DispatchQueue.global(qos: .utility).asyncAfter(deadline: .now() + 2.5) {
+            if proc.isRunning { proc.terminate() }
+        }
         proc.waitUntilExit()
         let data = pipe.fileHandleForReading.readDataToEndOfFile()
         return String(data: data, encoding: .utf8)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
@@ -514,10 +517,17 @@ func shellRun(_ command: String) -> String {
     proc.arguments = ["-c", "export PATH=\"$HOME/.local/bin:/opt/homebrew/bin:/usr/local/bin:$PATH\"; \(command)"]
     proc.standardOutput = pipe
     proc.standardError = pipe
-    try? proc.run()
-    proc.waitUntilExit()
-    let data = pipe.fileHandleForReading.readDataToEndOfFile()
-    return String(data: data, encoding: .utf8) ?? ""
+    do {
+        try proc.run()
+        DispatchQueue.global(qos: .utility).asyncAfter(deadline: .now() + 2.5) {
+            if proc.isRunning { proc.terminate() }
+        }
+        proc.waitUntilExit()
+        let data = pipe.fileHandleForReading.readDataToEndOfFile()
+        return String(data: data, encoding: .utf8) ?? ""
+    } catch {
+        return ""
+    }
 }
 
 // MARK: - 1. REMINDERS WIDGET (tututodo)
@@ -1403,6 +1413,8 @@ class BatteryView: NSView {
         btHeaderLabel.isEditable = false; btHeaderLabel.isBordered = false; btHeaderLabel.backgroundColor = .clear; addSubview(btHeaderLabel)
 
         addSubview(btListContainer)
+        updateBattery()
+        timer = Timer.scheduledTimer(withTimeInterval: 5.0, repeats: true) { [weak self] _ in self?.updateBattery() }
     }
 
     override func layout() {
@@ -1415,11 +1427,6 @@ class BatteryView: NSView {
 
         btHeaderLabel.frame = NSRect(x: 14, y: h - 124, width: w - 28, height: 16)
         btListContainer.frame = NSRect(x: 12, y: 12, width: w - 24, height: h - 142)
-
-        updateBattery()
-        if timer == nil {
-            timer = Timer.scheduledTimer(withTimeInterval: 5.0, repeats: true) { [weak self] _ in self?.updateBattery() }
-        }
     }
 
     private func updateBattery() {
@@ -1968,6 +1975,8 @@ class SpotifyView: NSView {
         let t = Int(sec); return String(format: "%d:%02d", t / 60, t % 60)
     }
 
+    private var artTask: URLSessionDataTask?
+
     @objc private func updateSpotifyInfo() {
         let sc = """
         if application "Spotify" is running then
@@ -1985,7 +1994,13 @@ class SpotifyView: NSView {
         end if
         return "OFFLINE"
         """
-        let res = runScript(sc)
+        DispatchQueue.global(qos: .utility).async { [weak self] in
+            let res = runScript(sc)
+            DispatchQueue.main.async { self?.handleSpotifyResult(res) }
+        }
+    }
+
+    private func handleSpotifyResult(_ res: String) {
         if res == "OFFLINE" || res.isEmpty {
             eqView.isPlaying = false; eqView.isHidden = true; artImageView.isHidden = true; trackLabel.isHidden = true; artistLabel.isHidden = true; progressBar.isHidden = true; currTimeLabel.isHidden = true; durTimeLabel.isHidden = true; prevBtn.isHidden = true; playBtn.isHidden = true; nextBtn.isHidden = true
             statusLabel.stringValue = "Spotify Offline"; statusLabel.isHidden = false
@@ -2004,10 +2019,13 @@ class SpotifyView: NSView {
     }
 
     private func loadArtwork(from urlStr: String) {
+        artTask?.cancel()
         guard let url = URL(string: urlStr) else { return }
-        URLSession.shared.dataTask(with: url) { [weak self] data, _, _ in
-            if let data = data, let img = NSImage(data: data) { DispatchQueue.main.async { self?.artImageView.image = img } }
-        }.resume()
+        artTask = URLSession.shared.dataTask(with: url) { [weak self] data, _, error in
+            guard error == nil, let data = data, let img = NSImage(data: data) else { return }
+            DispatchQueue.main.async { self?.artImageView.image = img }
+        }
+        artTask?.resume()
     }
 
     @objc private func onPrev() { _ = runScript("tell application \"Spotify\" to previous track"); DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) { [weak self] in self?.updateSpotifyInfo() } }
@@ -2426,19 +2444,19 @@ class TimetableWidgetView: NSView {
 
         switch code.uppercased() {
         case "DBMS":
-            return isDark ? NSColor(calibratedRed: 0.22, green: 0.28, blue: 0.45, alpha: 0.9) : NSColor(calibratedRed: 0.85, green: 0.88, blue: 0.98, alpha: 0.85)
+            return isDark ? NSColor(srgbRed: 0.22, green: 0.28, blue: 0.45, alpha: 0.9) : NSColor(srgbRed: 0.85, green: 0.88, blue: 0.98, alpha: 0.85)
         case "SE":
-            return isDark ? NSColor(calibratedRed: 0.18, green: 0.38, blue: 0.26, alpha: 0.9) : NSColor(calibratedRed: 0.84, green: 0.93, blue: 0.86, alpha: 0.85)
+            return isDark ? NSColor(srgbRed: 0.18, green: 0.38, blue: 0.26, alpha: 0.9) : NSColor(srgbRed: 0.84, green: 0.93, blue: 0.86, alpha: 0.85)
         case "ML":
-            return isDark ? NSColor(calibratedRed: 0.35, green: 0.22, blue: 0.48, alpha: 0.9) : NSColor(calibratedRed: 0.92, green: 0.86, blue: 0.98, alpha: 0.85)
+            return isDark ? NSColor(srgbRed: 0.35, green: 0.22, blue: 0.48, alpha: 0.9) : NSColor(srgbRed: 0.92, green: 0.86, blue: 0.98, alpha: 0.85)
         case "DA":
-            return isDark ? NSColor(calibratedRed: 0.45, green: 0.35, blue: 0.18, alpha: 0.9) : NSColor(calibratedRed: 0.98, green: 0.91, blue: 0.78, alpha: 0.85)
+            return isDark ? NSColor(srgbRed: 0.45, green: 0.35, blue: 0.18, alpha: 0.9) : NSColor(srgbRed: 0.98, green: 0.91, blue: 0.78, alpha: 0.85)
         case "GTA":
-            return isDark ? NSColor(calibratedRed: 0.45, green: 0.22, blue: 0.26, alpha: 0.9) : NSColor(calibratedRed: 0.98, green: 0.85, blue: 0.87, alpha: 0.85)
+            return isDark ? NSColor(srgbRed: 0.45, green: 0.22, blue: 0.26, alpha: 0.9) : NSColor(srgbRed: 0.98, green: 0.85, blue: 0.87, alpha: 0.85)
         case "DBMS LAB":
-            return isDark ? NSColor(calibratedRed: 0.18, green: 0.38, blue: 0.45, alpha: 0.9) : NSColor(calibratedRed: 0.82, green: 0.92, blue: 0.98, alpha: 0.85)
+            return isDark ? NSColor(srgbRed: 0.18, green: 0.38, blue: 0.45, alpha: 0.9) : NSColor(srgbRed: 0.82, green: 0.92, blue: 0.98, alpha: 0.85)
         case "ML LAB":
-            return isDark ? NSColor(calibratedRed: 0.45, green: 0.18, blue: 0.38, alpha: 0.9) : NSColor(calibratedRed: 0.97, green: 0.84, blue: 0.92, alpha: 0.85)
+            return isDark ? NSColor(srgbRed: 0.45, green: 0.18, blue: 0.38, alpha: 0.9) : NSColor(srgbRed: 0.97, green: 0.84, blue: 0.92, alpha: 0.85)
         default:
             return isDark ? kSurface.withAlphaComponent(0.6) : kBg.withAlphaComponent(0.45)
         }
@@ -3110,6 +3128,314 @@ class ThemeCustomizerView: NSView {
     }
 }
 
+// MARK: - NOTCH WIDGET (Dynamic Island Style Spotify Notch)
+class NotchWidgetWindow: NSWindow {
+    override var canBecomeKey: Bool { true }
+    override var canBecomeMain: Bool { false }
+}
+
+class NotchWidgetView: NSView {
+    let widgetKey = "notch"
+    
+    enum NotchState { case hidden, collapsed, expanded }
+    private var notchState: NotchState = .hidden
+    
+    private let collapsedW: CGFloat = 148
+    private let collapsedH: CGFloat = 36
+    private let expandedW: CGFloat = 360
+    private let expandedH: CGFloat = 80
+    
+    private let container = NSView()
+    private let eqView = AudioEqualizerView()
+    private let artView = NSImageView()
+    private let trackLabel = NSTextField()
+    private let artistLabel = NSTextField()
+    private let prevBtn = NSButton()
+    private let playBtn = NSButton()
+    private let nextBtn = NSButton()
+    private let closeBtn = NSButton()
+    
+    private var spotifyTimer: Timer?
+    private var collapseTimer: Timer?
+    private var artTask: URLSessionDataTask?
+    private var currentArtUrl = ""
+    private var isPlaying = false
+    private var lastTrack = ""
+    
+    private var dragStart: NSPoint = .zero
+    private var initialWinOrigin: NSPoint = .zero
+    private var dragActive = false
+    
+    override init(frame: NSRect) {
+        super.init(frame: frame)
+        build()
+        startMonitoring()
+        listenForThemeChanges()
+    }
+    required init?(coder: NSCoder) { fatalError() }
+    
+    private func build() {
+        wantsLayer = true
+        layer?.backgroundColor = NSColor.clear.cgColor
+        
+        container.wantsLayer = true
+        container.layer?.backgroundColor = NSColor(hex: "#090D16")!.cgColor
+        container.layer?.borderWidth = 0.5
+        container.layer?.borderColor = NSColor.white.withAlphaComponent(0.12).cgColor
+        addSubview(container)
+        
+        eqView.isHidden = true
+        container.addSubview(eqView)
+        
+        artView.wantsLayer = true
+        artView.layer?.cornerRadius = 6
+        artView.layer?.masksToBounds = true
+        artView.imageScaling = .scaleAxesIndependently
+        container.addSubview(artView)
+        
+        trackLabel.font = dynamicFont(size: 13, weight: .bold)
+        trackLabel.textColor = .white
+        trackLabel.isEditable = false
+        trackLabel.isBordered = false
+        trackLabel.backgroundColor = .clear
+        trackLabel.lineBreakMode = .byTruncatingTail
+        container.addSubview(trackLabel)
+        
+        artistLabel.font = dynamicFont(size: 10, weight: .medium)
+        artistLabel.textColor = NSColor.white.withAlphaComponent(0.65)
+        artistLabel.isEditable = false
+        artistLabel.isBordered = false
+        artistLabel.backgroundColor = .clear
+        artistLabel.lineBreakMode = .byTruncatingTail
+        container.addSubview(artistLabel)
+        
+        setupControlBtn(prevBtn, title: "⏮", action: #selector(onPrev))
+        setupControlBtn(playBtn, title: "▶", action: #selector(onPlayPause))
+        setupControlBtn(nextBtn, title: "⏭", action: #selector(onNext))
+        
+        closeBtn.title = "✕"
+        closeBtn.font = dynamicFont(size: 10, weight: .bold)
+        closeBtn.isBordered = false
+        closeBtn.wantsLayer = true
+        closeBtn.contentTintColor = NSColor.white.withAlphaComponent(0.5)
+        closeBtn.target = self
+        closeBtn.action = #selector(onClose)
+        container.addSubview(closeBtn)
+        
+        let area = NSTrackingArea(rect: .zero, options: [.mouseEnteredAndExited, .activeAlways, .inVisibleRect], owner: self, userInfo: nil)
+        addTrackingArea(area)
+    }
+    
+    private func setupControlBtn(_ btn: NSButton, title: String, action: Selector) {
+        btn.title = title
+        btn.font = dynamicFont(size: 11, weight: .bold)
+        btn.isBordered = false
+        btn.wantsLayer = true
+        btn.layer?.cornerRadius = 8
+        btn.layer?.backgroundColor = NSColor.white.withAlphaComponent(0.10).cgColor
+        btn.contentTintColor = .white
+        btn.target = self
+        btn.action = action
+        container.addSubview(btn)
+    }
+    
+    override func layout() {
+        super.layout()
+        let w = bounds.width, h = bounds.height
+        
+        if notchState == .hidden {
+            container.frame = .zero
+            return
+        }
+        
+        let isExpanded = notchState == .expanded
+        let targetW = isExpanded ? expandedW : collapsedW
+        let targetH = isExpanded ? expandedH : collapsedH
+        
+        container.frame = NSRect(x: (w - targetW)/2, y: h - targetH, width: targetW, height: targetH)
+        container.layer?.cornerRadius = targetH / 2
+        
+        if isExpanded {
+            eqView.isHidden = true
+            artView.isHidden = false
+            trackLabel.isHidden = false
+            artistLabel.isHidden = false
+            prevBtn.isHidden = false
+            playBtn.isHidden = false
+            nextBtn.isHidden = false
+            closeBtn.isHidden = false
+            
+            let artSize: CGFloat = 52
+            artView.frame = NSRect(x: 14, y: (targetH - artSize)/2, width: artSize, height: artSize)
+            
+            let textX: CGFloat = artSize + 28
+            let textW = targetW - textX - 120
+            trackLabel.frame = NSRect(x: textX, y: targetH - 42, width: textW, height: 20)
+            artistLabel.frame = NSRect(x: textX, y: 14, width: textW, height: 16)
+            
+            let btnY: CGFloat = (targetH - 30)/2
+            prevBtn.frame = NSRect(x: targetW - 104, y: btnY, width: 30, height: 30)
+            playBtn.frame = NSRect(x: targetW - 70, y: btnY, width: 30, height: 30)
+            nextBtn.frame = NSRect(x: targetW - 36, y: btnY, width: 30, height: 30)
+            closeBtn.frame = NSRect(x: targetW - 20, y: targetH - 20, width: 18, height: 18)
+        } else {
+            eqView.isHidden = false
+            artView.isHidden = true
+            trackLabel.isHidden = true
+            artistLabel.isHidden = true
+            prevBtn.isHidden = true
+            playBtn.isHidden = true
+            nextBtn.isHidden = true
+            closeBtn.isHidden = true
+            
+            eqView.frame = NSRect(x: (targetW - 36)/2, y: (targetH - 16)/2, width: 36, height: 16)
+        }
+    }
+    
+    private func startMonitoring() {
+        spotifyTimer = Timer.scheduledTimer(withTimeInterval: 2.0, repeats: true) { [weak self] _ in
+            self?.checkSpotifyInBackground()
+        }
+    }
+    
+    private func checkSpotifyInBackground() {
+        let sc = """
+        if application "Spotify" is running then
+            tell application "Spotify"
+                if player state is playing or player state is paused then
+                    set trackName to name of current track
+                    set artistName to artist of current track
+                    set artUrl to artwork url of current track
+                    set pState to (player state is playing)
+                    return trackName & "|||" & artistName & "|||" & artUrl & "|||" & pState
+                end if
+            end tell
+        end if
+        return "OFFLINE"
+        """
+        DispatchQueue.global(qos: .utility).async { [weak self] in
+            let res = runScript(sc)
+            DispatchQueue.main.async { self?.handleSpotifyResult(res) }
+        }
+    }
+    
+    private func handleSpotifyResult(_ res: String) {
+        if res == "OFFLINE" || res.isEmpty {
+            if notchState != .hidden { animateToState(.hidden) }
+            return
+        }
+        let p = res.components(separatedBy: "|||")
+        guard p.count >= 4 else { return }
+        
+        let track = p[0]
+        let artist = p[1]
+        let artUrl = p[2]
+        let playing = (p[3] == "true")
+        
+        isPlaying = playing
+        playBtn.title = playing ? "⏸" : "▶"
+        eqView.isPlaying = playing
+        
+        if track != lastTrack {
+            lastTrack = track
+            trackLabel.stringValue = track
+            artistLabel.stringValue = artist
+            if artUrl != currentArtUrl && !artUrl.isEmpty {
+                currentArtUrl = artUrl
+                loadArtwork(from: artUrl)
+            }
+            if notchState == .collapsed {
+                animateToState(.expanded)
+                resetCollapseTimer()
+            }
+        }
+        if notchState == .hidden { animateToState(.collapsed) }
+    }
+    
+    private func loadArtwork(from urlStr: String) {
+        artTask?.cancel()
+        guard let url = URL(string: urlStr) else { return }
+        artTask = URLSession.shared.dataTask(with: url) { [weak self] data, _, error in
+            guard error == nil, let data = data, let img = NSImage(data: data) else { return }
+            DispatchQueue.main.async { self?.artView.image = img }
+        }
+        artTask?.resume()
+    }
+    
+    private func animateToState(_ newState: NotchState) {
+        guard notchState != newState else { return }
+        notchState = newState
+        NSAnimationContext.runAnimationGroup { ctx in
+            ctx.duration = 0.32
+            ctx.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
+            self.alphaValue = (newState == .hidden) ? 0 : 1
+            self.layout()
+        }
+    }
+    
+    private func resetCollapseTimer() {
+        collapseTimer?.invalidate()
+        collapseTimer = Timer.scheduledTimer(withTimeInterval: 5.0, repeats: false) { [weak self] _ in
+            if self?.notchState == .expanded { self?.animateToState(.collapsed) }
+        }
+    }
+    
+    override func mouseEntered(with event: NSEvent) {
+        if notchState == .collapsed { animateToState(.expanded) }
+        collapseTimer?.invalidate()
+    }
+    override func mouseExited(with event: NSEvent) {
+        resetCollapseTimer()
+    }
+    
+    override func mouseDown(with event: NSEvent) {
+        let point = convert(event.locationInWindow, from: nil)
+        if let hitView = hitTest(point), hitView is NSButton { super.mouseDown(with: event); return }
+        dragStart = NSEvent.mouseLocation
+        if let w = window { initialWinOrigin = w.frame.origin }
+        dragActive = true
+    }
+    override func mouseDragged(with event: NSEvent) {
+        guard dragActive, let w = window else { return }
+        let c = NSEvent.mouseLocation
+        w.setFrameOrigin(NSPoint(x: initialWinOrigin.x + (c.x - dragStart.x), y: initialWinOrigin.y + (c.y - dragStart.y)))
+    }
+    override func mouseUp(with event: NSEvent) {
+        dragActive = false
+        if let w = window { PositionManager.shared.savePosition(key: widgetKey, origin: w.frame.origin) }
+    }
+    
+    @objc private func onPrev() {
+        DispatchQueue.global(qos: .utility).async { [weak self] in
+            _ = runScript("tell application \"Spotify\" to previous track")
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { self?.checkSpotifyInBackground() }
+        }
+    }
+    @objc private func onPlayPause() {
+        DispatchQueue.global(qos: .utility).async { [weak self] in
+            _ = runScript("tell application \"Spotify\" to playpause")
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { self?.checkSpotifyInBackground() }
+        }
+    }
+    @objc private func onNext() {
+        DispatchQueue.global(qos: .utility).async { [weak self] in
+            _ = runScript("tell application \"Spotify\" to next track")
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { self?.checkSpotifyInBackground() }
+        }
+    }
+    @objc private func onClose() {
+        animateToState(.hidden)
+    }
+    
+    private func listenForThemeChanges() {
+        NotificationCenter.default.addObserver(self, selector: #selector(onThemeChanged), name: ThemeManager.notifName, object: nil)
+    }
+    @objc private func onThemeChanged() {
+        trackLabel.font = dynamicFont(size: 13, weight: .bold)
+        artistLabel.font = dynamicFont(size: 10, weight: .medium)
+    }
+}
+
 
 
 class AppDelegate: NSObject, NSApplicationDelegate {
@@ -3207,6 +3533,29 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         themeCustomizerWindow = styleWin
         widgetWindows["theme_customizer"] = styleWin
 
+        // 15. Dynamic Island Notch Widget (Spotify Pill at Top Center)
+        let notchW: CGFloat = 360, notchH: CGFloat = 80
+        let defaultNotchOrigin = NSPoint(
+            x: (NSScreen.main?.frame.midX ?? 600) - notchW/2,
+            y: (NSScreen.main?.frame.maxY ?? 900) - notchH - 4
+        )
+        let notchOrigin = PositionManager.shared.getPosition(key: "notch", defaultOrigin: defaultNotchOrigin)
+        let notchWin = NotchWidgetWindow(
+            contentRect: NSRect(origin: notchOrigin, size: NSSize(width: notchW, height: notchH)),
+            styleMask: [.borderless],
+            backing: .buffered,
+            defer: false
+        )
+        notchWin.isOpaque = false
+        notchWin.backgroundColor = .clear
+        notchWin.level = .floating
+        notchWin.collectionBehavior = [.canJoinAllSpaces, .ignoresCycle, .fullScreenAuxiliary]
+        notchWin.hasShadow = true
+        notchWin.contentView = NotchWidgetView(frame: NSRect(origin: .zero, size: NSSize(width: notchW, height: notchH)))
+        notchWin.makeKeyAndOrderFront(nil)
+        widgetWindows["notch"] = notchWin
+        windows.append(notchWin)
+
         setupHotkeys()
     }
 
@@ -3289,6 +3638,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         case "collage", "album", "album_collage": return "album_collage"
         case "wallpaper", "switcher", "wallpaper_switcher": return "wallpaper_switcher"
         case "theme", "styles", "style", "theme_customizer": return "theme_customizer"
+        case "notch", "dynamic_island", "pill", "notch_widget": return "notch"
         default: return key
         }
     }
@@ -3389,7 +3739,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         let win = MasterWidgetWindow(contentRect: rect, styleMask: [.borderless], backing: .buffered, defer: false)
         win.isOpaque = false
         win.backgroundColor = .clear
-        win.level = NSWindow.Level(rawValue: -1)
+        win.level = NSWindow.Level(rawValue: Int(CGWindowLevelForKey(.desktopIconWindow)) - 1)
         win.collectionBehavior = [.canJoinAllSpaces, .ignoresCycle]
         win.isMovableByWindowBackground = true
         win.hasShadow = false
