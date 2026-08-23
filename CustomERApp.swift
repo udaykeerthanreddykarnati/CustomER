@@ -3181,7 +3181,7 @@ class NotchProgressView: NSView {
 
 // MARK: - BORINGNOTCH-STYLE WIDGET
 class NotchWidgetWindow: NSWindow {
-    override var canBecomeKey: Bool { true }
+    override var canBecomeKey: Bool { false }
     override var canBecomeMain: Bool { false }
 }
 
@@ -3196,7 +3196,7 @@ class NotchWidgetView: NSView {
     private let expandedW: CGFloat = 400
     private let expandedH: CGFloat = 130
 
-    private let notchBlack = NSColor(hex: "#090D16")!
+    private let notchBlack = NSColor.black
     private let notchSurface = NSColor(hex: "#151D2A")!
 
     private let container = NSView()
@@ -3211,7 +3211,6 @@ class NotchWidgetView: NSView {
     private let offlineLabel = NSTextField()
 
     private var spotifyTimer: Timer?
-    private var collapseTimer: Timer?
     private var currentArtUrl = ""
     private var isPlaying = false
     private var lastTrack = ""
@@ -3232,11 +3231,11 @@ class NotchWidgetView: NSView {
         wantsLayer = true
         layer?.backgroundColor = NSColor.clear.cgColor
 
-        // Container is the actual notch shape — always sits at the TOP of this view
+        // Container is the actual notch shape — always sits at the TOP of this view (flush with screen edge)
         container.wantsLayer = true
         container.layer?.backgroundColor = notchBlack.cgColor
         container.layer?.borderWidth = 0.5
-        container.layer?.borderColor = NSColor.white.withAlphaComponent(0.08).cgColor
+        container.layer?.borderColor = NSColor.white.withAlphaComponent(0.10).cgColor
         addSubview(container)
 
         // Collapsed: tiny equalizer
@@ -3287,10 +3286,6 @@ class NotchWidgetView: NSView {
         progressBar.wantsLayer = true
         container.addSubview(progressBar)
 
-        // Hover tracking
-        let area = NSTrackingArea(rect: .zero, options: [.mouseEnteredAndExited, .activeAlways, .inVisibleRect], owner: self, userInfo: nil)
-        addTrackingArea(area)
-
         applyCollapsedLayout()
     }
 
@@ -3300,7 +3295,7 @@ class NotchWidgetView: NSView {
         btn.isBordered = false
         btn.wantsLayer = true
         btn.layer?.cornerRadius = 8
-        btn.layer?.backgroundColor = NSColor.white.withAlphaComponent(0.08).cgColor
+        btn.layer?.backgroundColor = NSColor.white.withAlphaComponent(0.10).cgColor
         btn.contentTintColor = .white
         btn.target = self
         btn.action = action
@@ -3310,9 +3305,9 @@ class NotchWidgetView: NSView {
     // MARK: Layout
     private func applyCollapsedLayout() {
         let w = collapsedW, h = collapsedH
-        // Container sits at the very TOP of this view (touching screen edge)
+        // Container sits at the very TOP of this view (touching screen edge flush around notch)
         container.frame = NSRect(x: (bounds.width - w)/2, y: bounds.height - h, width: w, height: h)
-        container.layer?.cornerRadius = h / 2
+        container.layer?.cornerRadius = 14.0
 
         eqView.isHidden = false
         eqView.frame = NSRect(x: (w - 40)/2, y: (h - 16)/2, width: 40, height: 16)
@@ -3330,7 +3325,7 @@ class NotchWidgetView: NSView {
     private func applyExpandedLayout() {
         let w = expandedW, h = expandedH
         container.frame = NSRect(x: (bounds.width - w)/2, y: bounds.height - h, width: w, height: h)
-        container.layer?.cornerRadius = 28
+        container.layer?.cornerRadius = 24.0
 
         eqView.isHidden = true
 
@@ -3474,30 +3469,42 @@ class NotchWidgetView: NSView {
     private func animateTo(_ newState: State) {
         guard state != newState else { return }
         state = newState
-        NSAnimationContext.runAnimationGroup({ ctx in
-            ctx.duration = 0.30
-            ctx.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
-            self.layout()
-        }, completionHandler: {
-            if self.state == .collapsed { self.applyCollapsedLayout() }
-        })
-    }
 
-    // MARK: Interaction
-    override func mouseEntered(with event: NSEvent) {
-        if state == .collapsed { animateTo(.expanded) }
-        collapseTimer?.invalidate()
-    }
+        let isExpanded = (newState == .expanded)
+        let targetW = isExpanded ? expandedW : collapsedW
+        let targetH = isExpanded ? expandedH : collapsedH
 
-    override func mouseExited(with event: NSEvent) {
-        collapseTimer = Timer.scheduledTimer(withTimeInterval: 3.5, repeats: false) { [weak self] _ in
-            self?.animateTo(.collapsed)
+        if let w = window, let screen = w.screen ?? NSScreen.main {
+            let screenTop = screen.frame.maxY
+            let currentCenterX = w.frame.midX
+            let newFrame = NSRect(x: currentCenterX - targetW / 2.0, y: screenTop - targetH, width: targetW, height: targetH)
+
+            NSAnimationContext.runAnimationGroup({ ctx in
+                ctx.duration = 0.28
+                ctx.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
+                w.animator().setFrame(newFrame, display: true)
+                self.layout()
+            }, completionHandler: {
+                if self.state == .collapsed { self.applyCollapsedLayout() }
+            })
         }
     }
 
+    // MARK: Interaction (CLICK TO TOGGLE ENLARGE — NO HOVER)
     override func mouseDown(with event: NSEvent) {
         let pt = convert(event.locationInWindow, from: nil)
-        if hitTest(pt) is NSButton { super.mouseDown(with: event); return }
+        if hitTest(pt) is NSButton {
+            super.mouseDown(with: event)
+            return
+        }
+
+        // Toggle state on click
+        if state == .collapsed {
+            animateTo(.expanded)
+        } else {
+            animateTo(.collapsed)
+        }
+
         dragStartX = NSEvent.mouseLocation.x
         if let w = window { initialWinOrigin = w.frame.origin }
         dragActive = true
@@ -3628,18 +3635,19 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         themeCustomizerWindow = styleWin
         widgetWindows["theme_customizer"] = styleWin
 
-        // 15. BoringNotch-style Spotify Notch Widget
-        let notchExpandedH: CGFloat = 130
-        let notchW: CGFloat = 400
+        // 15. BoringNotch-style Spotify Notch Widget (Disabled by default - uncomment to activate)
+        /*
+        let notchCollapsedW: CGFloat = 210
+        let notchCollapsedH: CGFloat = 34
         let screenTop = NSScreen.main?.frame.maxY ?? 900
         let defaultNotchOrigin = NSPoint(
-            x: (NSScreen.main?.frame.midX ?? 600) - notchW / 2,
-            y: screenTop - notchExpandedH
+            x: (NSScreen.main?.frame.midX ?? 600) - notchCollapsedW / 2,
+            y: screenTop - notchCollapsedH
         )
         let notchOrigin = PositionManager.shared.getPosition(key: "notch", defaultOrigin: defaultNotchOrigin)
 
         let notchWin = NotchWidgetWindow(
-            contentRect: NSRect(origin: notchOrigin, size: NSSize(width: notchW, height: notchExpandedH)),
+            contentRect: NSRect(origin: notchOrigin, size: NSSize(width: notchCollapsedW, height: notchCollapsedH)),
             styleMask: [.borderless],
             backing: .buffered,
             defer: false
@@ -3651,11 +3659,12 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         notchWin.hasShadow = false
         notchWin.ignoresMouseEvents = false
 
-        let notchView = NotchWidgetView(frame: NSRect(origin: .zero, size: NSSize(width: notchW, height: notchExpandedH)))
+        let notchView = NotchWidgetView(frame: NSRect(origin: .zero, size: NSSize(width: notchCollapsedW, height: notchCollapsedH)))
         notchWin.contentView = notchView
         notchWin.makeKeyAndOrderFront(nil)
         widgetWindows["notch"] = notchWin
         windows.append(notchWin)
+        */
 
         setupHotkeys()
     }
@@ -3667,6 +3676,16 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         DispatchQueue.main.async {
             if action == "kill_app" {
                 NSApp.terminate(nil)
+                return
+            } else if action == "hide_all" || action == "kill_all" || action == "close_all" {
+                for win in self.widgetWindows.values {
+                    win.orderOut(nil)
+                }
+                return
+            } else if action == "show_all" || action == "open_all" {
+                for win in self.widgetWindows.values {
+                    win.makeKeyAndOrderFront(nil)
+                }
                 return
             } else if action == "set_font" {
                 if let fontName = userInfo["value"] {
@@ -3703,7 +3722,17 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                 return
             }
 
-            guard let rawWidgetKey = userInfo["widget"] else { return }
+            let rawWidgetKey = userInfo["widget"] ?? ""
+            if rawWidgetKey.isEmpty || rawWidgetKey == "all" {
+                if action == "hide" || action == "kill" || action == "close" {
+                    for win in self.widgetWindows.values { win.orderOut(nil) }
+                    return
+                } else if action == "show" || action == "open" {
+                    for win in self.widgetWindows.values { win.makeKeyAndOrderFront(nil) }
+                    return
+                }
+            }
+
             let widgetKey = self.canonicalWidgetKey(rawWidgetKey)
             guard let win = self.widgetWindows[widgetKey] else { return }
 
@@ -3840,7 +3869,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         let win = MasterWidgetWindow(contentRect: rect, styleMask: [.borderless], backing: .buffered, defer: false)
         win.isOpaque = false
         win.backgroundColor = .clear
-        win.level = NSWindow.Level(rawValue: Int(CGWindowLevelForKey(.desktopIconWindow)) - 1)
+        win.level = NSWindow.Level(rawValue: -1)
         win.collectionBehavior = [.canJoinAllSpaces, .ignoresCycle]
         win.isMovableByWindowBackground = true
         win.hasShadow = false
