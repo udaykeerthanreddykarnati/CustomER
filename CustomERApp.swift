@@ -3669,6 +3669,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         let wallWin = addWindow(rect: NSRect(origin: wallOrigin, size: defaultWallRect.size), view: WallpaperPickerView(frame: NSRect(origin: wallOrigin, size: defaultWallRect.size)))
         wallpaperWindow = wallWin
         widgetWindows["wallpaper_switcher"] = wallWin
+        wallWin.orderOut(nil)
 
         // 14. Theme & Style Customizer Widget (tutustyles - Option + E)
         let defaultStyleRect = NSRect(x: 612, y: 540, width: 505, height: 75)
@@ -3676,6 +3677,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         let styleWin = addWindow(rect: NSRect(origin: styleOrigin, size: defaultStyleRect.size), view: ThemeCustomizerView(frame: NSRect(origin: styleOrigin, size: defaultStyleRect.size)))
         themeCustomizerWindow = styleWin
         widgetWindows["theme_customizer"] = styleWin
+        styleWin.orderOut(nil)
 
         // 15. BoringNotch-style Spotify Notch Widget (Disabled by default - uncomment to activate)
         /*
@@ -3725,8 +3727,10 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                 }
                 return
             } else if action == "show_all" || action == "open_all" {
-                for win in self.widgetWindows.values {
-                    win.makeKeyAndOrderFront(nil)
+                for (key, win) in self.widgetWindows {
+                    if key != "wallpaper_switcher" && key != "theme_customizer" {
+                        win.makeKeyAndOrderFront(nil)
+                    }
                 }
                 return
             } else if action == "set_font" {
