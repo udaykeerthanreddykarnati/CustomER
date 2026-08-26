@@ -2773,6 +2773,9 @@ class WallpaperPickerView: NSView {
     private var activeWallpaperURL: URL?
     private let thumbnailCache = NSCache<NSURL, NSImage>()
 
+    private var folderWatcher: DispatchSourceFileSystemObject?
+    private var folderFD: Int32 = -1
+
     private var dragStart: NSPoint = .zero, initialWinOrigin: NSPoint = .zero, dragActive = false
 
     override init(frame: NSRect) {
@@ -2780,8 +2783,46 @@ class WallpaperPickerView: NSView {
         build()
         loadWallpapers()
         listenForThemeChanges()
+        startWatchingFolder()
     }
     required init?(coder: NSCoder) { fatalError() }
+
+    deinit {
+        stopWatchingFolder()
+    }
+
+    override func viewWillMove(toWindow newWindow: NSWindow?) {
+        super.viewWillMove(toWindow: newWindow)
+        if newWindow != nil {
+            loadWallpapers()
+        }
+    }
+
+    private func startWatchingFolder() {
+        stopWatchingFolder()
+        let path = wallpaperFolderURL.path
+        let fd = open(path, O_EVTONLY)
+        guard fd >= 0 else { return }
+        folderFD = fd
+        let source = DispatchSource.makeFileSystemObjectSource(fileDescriptor: fd, eventMask: [.write, .extend, .attrib, .link, .rename, .revoke], queue: .main)
+        source.setEventHandler { [weak self] in
+            self?.loadWallpapers()
+        }
+        source.setCancelHandler {
+            close(fd)
+        }
+        folderWatcher = source
+        source.resume()
+    }
+
+    private func stopWatchingFolder() {
+        folderWatcher?.cancel()
+        folderWatcher = nil
+        if folderFD >= 0 {
+            close(folderFD)
+            folderFD = -1
+        }
+    }
 
     private func build() {
         wantsLayer = true
@@ -2949,6 +2990,7 @@ class WallpaperPickerView: NSView {
                 self?.wallpaperFolderURL = selectedURL
                 UserDefaults.standard.set(selectedURL.path, forKey: "customER_wallpaper_folder")
                 self?.loadWallpapers()
+                self?.startWatchingFolder()
             }
         }
     }
