@@ -2450,9 +2450,14 @@ class TimetableWidgetView: NSView {
     }
 
     private func colorForSubject(_ code: String) -> NSColor {
-        let isDark = ThemeManager.shared.currentPreset.name.lowercased().contains("dark") ||
-                     ThemeManager.shared.currentPreset.name.lowercased().contains("cyber") ||
-                     ThemeManager.shared.currentPreset.name.lowercased().contains("midnight")
+        let bg = ThemeManager.shared.currentBgColor
+        let isDark: Bool
+        if let rgb = bg.usingColorSpace(.sRGB) {
+            let luminance = 0.299 * rgb.redComponent + 0.587 * rgb.greenComponent + 0.114 * rgb.blueComponent
+            isDark = luminance < 0.5
+        } else {
+            isDark = ThemeManager.shared.currentPreset == .glass
+        }
 
         switch code.uppercased() {
         case "DBMS":
@@ -2591,12 +2596,17 @@ class TimetableWidgetView: NSView {
         return fmt.string(from: Date())
     }
 
+    private var lastRenderedBoundsSize: NSSize = .zero
+
     override func layout() {
         super.layout()
         let w = bounds.width, h = bounds.height
         titleLabel.frame = NSRect(x: 14, y: h - 26, width: 200, height: 18)
         cardView.frame   = NSRect(x: 10, y: 10, width: w - 20, height: h - 36)
-        renderGrid()
+        if cardView.bounds.size != lastRenderedBoundsSize {
+            lastRenderedBoundsSize = cardView.bounds.size
+            renderGrid()
+        }
     }
 
     private func listenForThemeChanges() {
