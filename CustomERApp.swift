@@ -496,11 +496,8 @@ func runScript(_ code: String) -> String {
     proc.standardError = Pipe()
     do {
         try proc.run()
-        DispatchQueue.global(qos: .utility).asyncAfter(deadline: .now() + 2.5) {
-            if proc.isRunning { proc.terminate() }
-        }
-        proc.waitUntilExit()
         let data = pipe.fileHandleForReading.readDataToEndOfFile()
+        proc.waitUntilExit()
         return String(data: data, encoding: .utf8)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
     } catch {
         return ""
@@ -516,11 +513,8 @@ func shellRun(_ command: String) -> String {
     proc.standardError = pipe
     do {
         try proc.run()
-        DispatchQueue.global(qos: .utility).asyncAfter(deadline: .now() + 2.5) {
-            if proc.isRunning { proc.terminate() }
-        }
-        proc.waitUntilExit()
         let data = pipe.fileHandleForReading.readDataToEndOfFile()
+        proc.waitUntilExit()
         return String(data: data, encoding: .utf8) ?? ""
     } catch {
         return ""
@@ -1664,208 +1658,6 @@ class DigitalClockView: NSView {
     }
 }
 
-// MARK: - 5. COLOR PICKER WIDGET (tutucolor)
-class ColorPickerView: NSView {
-    let widgetKey = "color_picker"
-    private let bgTitleLabel = NSTextField()
-    private let bgSwatchesContainer = NSView()
-    private let bgPickerBtn = NSButton()
-
-    private let textTitleLabel = NSTextField()
-    private let textSwatchesContainer = NSView()
-    private let textPickerBtn = NSButton()
-
-    private var dragStart: NSPoint = .zero, initialWinOrigin: NSPoint = .zero, dragActive = false
-    private var activePickerMode: String = "bg"
-    
-    private let bgPresetHexes   = ["#FEF9C3", "#090D16", "#FFE3F1", "#E0F2FE", "#F3E8FF", "#DCFCE7", "#F5EBE0"]
-    private let textPresetHexes = ["#800020", "#000000", "#FFFFFF", "#6366F1", "#10B981", "#FF4FA0", "#64748B"]
-
-    override init(frame: NSRect) {
-        super.init(frame: frame)
-        build()
-        listenForThemeChanges()
-    }
-    required init?(coder: NSCoder) { fatalError() }
-
-    private func build() {
-        wantsLayer = true
-        layer?.cornerRadius = kRadius
-        layer?.borderWidth = kBorderWidth
-        layer?.borderColor = kBorder.cgColor
-        layer?.backgroundColor = ThemeManager.shared.currentBgColor.cgColor
-
-        // BG Row
-        bgTitleLabel.stringValue = "BG COLOR"
-        bgTitleLabel.font = dynamicFont(size: 9, weight: .bold)
-        bgTitleLabel.textColor = kText
-        bgTitleLabel.isEditable = false; bgTitleLabel.isBordered = false; bgTitleLabel.backgroundColor = .clear
-        addSubview(bgTitleLabel)
-
-        bgSwatchesContainer.wantsLayer = true
-        addSubview(bgSwatchesContainer)
-
-        bgPickerBtn.title = "Bg"
-        bgPickerBtn.font = dynamicFont(size: 9, weight: .bold)
-        bgPickerBtn.isBordered = false; bgPickerBtn.wantsLayer = true; bgPickerBtn.layer?.cornerRadius = kRadius / 2
-        bgPickerBtn.layer?.backgroundColor = kAccent.cgColor; bgPickerBtn.layer?.borderWidth = kBorderWidth; bgPickerBtn.layer?.borderColor = kBorder.cgColor
-        bgPickerBtn.contentTintColor = .white
-        bgPickerBtn.target = self; bgPickerBtn.action = #selector(openBgColorPicker); addSubview(bgPickerBtn)
-
-        // Text Row
-        textTitleLabel.stringValue = "FONT COLOR"
-        textTitleLabel.font = dynamicFont(size: 9, weight: .bold)
-        textTitleLabel.textColor = kText
-        textTitleLabel.isEditable = false; textTitleLabel.isBordered = false; textTitleLabel.backgroundColor = .clear
-        addSubview(textTitleLabel)
-
-        textSwatchesContainer.wantsLayer = true
-        addSubview(textSwatchesContainer)
-
-        textPickerBtn.title = "Font 🔤"
-        textPickerBtn.font = dynamicFont(size: 9, weight: .bold)
-        textPickerBtn.isBordered = false; textPickerBtn.wantsLayer = true; textPickerBtn.layer?.cornerRadius = kRadius / 2
-        textPickerBtn.layer?.backgroundColor = kAccent.cgColor; textPickerBtn.layer?.borderWidth = kBorderWidth; textPickerBtn.layer?.borderColor = kBorder.cgColor
-        textPickerBtn.contentTintColor = .white
-        textPickerBtn.target = self; textPickerBtn.action = #selector(openTextColorPicker); addSubview(textPickerBtn)
-
-        renderSwatches()
-    }
-
-    private func renderSwatches() {
-        // Render BG Swatches
-        for sub in bgSwatchesContainer.subviews { sub.removeFromSuperview() }
-        let activeBgHex = ThemeManager.shared.currentBgColor.toHex().uppercased()
-        let size: CGFloat = 16, gap: CGFloat = 4
-
-        for (i, hex) in bgPresetHexes.enumerated() {
-            let btn = NSButton(frame: NSRect(x: CGFloat(i) * (size + gap), y: 0, width: size, height: size))
-            btn.title = ""; btn.isBordered = false; btn.wantsLayer = true; btn.layer?.cornerRadius = size / 2
-            let isSelected = (hex.uppercased() == activeBgHex)
-            btn.layer?.borderWidth = isSelected ? 2.0 : 1.0
-            btn.layer?.borderColor = isSelected ? kText.cgColor : kBorder.withAlphaComponent(0.6).cgColor
-            if let color = NSColor(hex: hex) { btn.layer?.backgroundColor = color.cgColor }
-            btn.target = self; btn.action = #selector(bgSwatchTapped(_:)); btn.tag = i
-            bgSwatchesContainer.addSubview(btn)
-        }
-
-        // Render Text Swatches
-        for sub in textSwatchesContainer.subviews { sub.removeFromSuperview() }
-        let activeTextHex = ThemeManager.shared.currentTextColor.toHex().uppercased()
-
-        for (i, hex) in textPresetHexes.enumerated() {
-            let btn = NSButton(frame: NSRect(x: CGFloat(i) * (size + gap), y: 0, width: size, height: size))
-            btn.title = ""; btn.isBordered = false; btn.wantsLayer = true; btn.layer?.cornerRadius = size / 2
-            let isSelected = (hex.uppercased() == activeTextHex)
-            btn.layer?.borderWidth = isSelected ? 2.0 : 1.0
-            btn.layer?.borderColor = isSelected ? kText.cgColor : kBorder.withAlphaComponent(0.6).cgColor
-            if let color = NSColor(hex: hex) { btn.layer?.backgroundColor = color.cgColor }
-            btn.target = self; btn.action = #selector(textSwatchTapped(_:)); btn.tag = i
-            textSwatchesContainer.addSubview(btn)
-        }
-    }
-
-    @objc private func bgSwatchTapped(_ sender: NSButton) {
-        let hex = bgPresetHexes[sender.tag]
-        if let color = NSColor(hex: hex) {
-            ThemeManager.shared.customBgColor = color
-            renderSwatches()
-        }
-    }
-
-    @objc private func textSwatchTapped(_ sender: NSButton) {
-        let hex = textPresetHexes[sender.tag]
-        if let color = NSColor(hex: hex) {
-            ThemeManager.shared.customTextColor = color
-            renderSwatches()
-        }
-    }
-
-    @objc private func openBgColorPicker() {
-        ColorPanelDelegate.shared.openColorWheel(for: .bg, initialColor: kBg)
-    }
-
-    @objc private func openTextColorPicker() {
-        ColorPanelDelegate.shared.openColorWheel(for: .text, initialColor: kText)
-    }
-
-    @objc private func colorPanelChanged(_ sender: NSColorPanel) {
-        if activePickerMode == "bg" {
-            ThemeManager.shared.customBgColor = sender.color
-        } else {
-            ThemeManager.shared.customTextColor = sender.color
-        }
-        renderSwatches()
-    }
-
-    override func layout() {
-        super.layout()
-        let w = bounds.width, h = bounds.height
-        let rowH = (h - 10) / 2
-        let totalSwatchesW = CGFloat(bgPresetHexes.count) * 20.0 - 4.0
-
-        // Row 1 (BG)
-        bgTitleLabel.frame = NSRect(x: 10, y: h - 18, width: 65, height: 14)
-        bgSwatchesContainer.frame = NSRect(x: 75, y: h - rowH + 2, width: totalSwatchesW, height: 16)
-        bgPickerBtn.frame = NSRect(x: w - 58, y: h - rowH + 1, width: 48, height: 20)
-
-        // Row 2 (Text)
-        textTitleLabel.frame = NSRect(x: 10, y: rowH - 12, width: 65, height: 14)
-        textSwatchesContainer.frame = NSRect(x: 75, y: 6, width: totalSwatchesW, height: 16)
-        textPickerBtn.frame = NSRect(x: w - 58, y: 5, width: 48, height: 20)
-    }
-
-    private func listenForThemeChanges() {
-        NotificationCenter.default.addObserver(self, selector: #selector(onThemeChanged), name: ThemeManager.notifName, object: nil)
-        DistributedNotificationCenter.default().addObserver(self, selector: #selector(onThemeChanged), name: ThemeManager.notifName, object: nil)
-    }
-
-    @objc private func onThemeChanged() {
-        DispatchQueue.main.async {
-            CATransaction.begin()
-            CATransaction.setDisableActions(true)
-            let p = ThemeManager.shared.currentPreset
-            let activeColor = ThemeManager.shared.currentBgColor
-            let activeText = ThemeManager.shared.currentTextColor
-            self.layer?.backgroundColor = activeColor.cgColor
-            self.layer?.cornerRadius = p.cornerRadius
-            self.layer?.borderColor = p.borderColor.cgColor
-            self.layer?.borderWidth = p.borderWidth
-
-            self.bgTitleLabel.textColor = activeText
-            self.textTitleLabel.textColor = activeText
-
-            self.bgPickerBtn.layer?.cornerRadius = p.cornerRadius / 2
-            self.bgPickerBtn.layer?.backgroundColor = p.accentColor.cgColor
-            self.bgPickerBtn.layer?.borderColor = p.borderColor.cgColor
-            self.bgPickerBtn.layer?.borderWidth = p.borderWidth
-            self.bgPickerBtn.font = p.font(size: 9, weight: .bold)
-
-            self.textPickerBtn.layer?.cornerRadius = p.cornerRadius / 2
-            self.textPickerBtn.layer?.backgroundColor = p.accentColor.cgColor
-            self.textPickerBtn.layer?.borderColor = p.borderColor.cgColor
-            self.textPickerBtn.layer?.borderWidth = p.borderWidth
-            self.textPickerBtn.font = p.font(size: 9, weight: .bold)
-
-            self.updateThemeRecursively(preset: p)
-            self.renderSwatches()
-            CATransaction.commit()
-            self.needsDisplay = true
-        }
-    }
-
-    override func mouseDown(with event: NSEvent) { dragStart = NSEvent.mouseLocation; if let w = window { initialWinOrigin = w.frame.origin }; dragActive = true; window?.makeKey() }
-    override func mouseDragged(with event: NSEvent) {
-        guard dragActive, let w = window else { return }
-        let c = NSEvent.mouseLocation
-        w.setFrameOrigin(NSPoint(x: initialWinOrigin.x + (c.x - dragStart.x), y: initialWinOrigin.y + (c.y - dragStart.y)))
-    }
-    override func mouseUp(with event: NSEvent) {
-        dragActive = false
-        if let w = window { PositionManager.shared.savePosition(key: widgetKey, origin: w.frame.origin) }
-    }
-}
-
 // MARK: - 7. SPOTIFY LIVE PLAYER WIDGET (tutuspotify)
 class AudioEqualizerView: NSView {
     var isPlaying: Bool = false { didSet { isPlaying ? startAnimation() : stopAnimation() } }
@@ -2156,6 +1948,7 @@ class GmailAtomParser: NSObject, XMLParserDelegate {
     var entries: [GmailEntry] = []
     
     private var currentElement = ""
+    private var currentFullCountString = ""
     private var currentTitle = ""
     private var currentSummary = ""
     private var currentAuthorName = ""
@@ -2171,7 +1964,9 @@ class GmailAtomParser: NSObject, XMLParserDelegate {
 
     func parser(_ parser: XMLParser, didStartElement elementName: String, namespaceURI: String?, qualifiedName qName: String?, attributes attributeDict: [String : String] = [:]) {
         currentElement = elementName
-        if elementName == "entry" {
+        if elementName == "fullcount" {
+            currentFullCountString = ""
+        } else if elementName == "entry" {
             inEntry = true; currentTitle = ""; currentSummary = ""; currentAuthorName = ""; currentAuthorEmail = ""
         } else if elementName == "author" {
             inAuthor = true
@@ -2179,10 +1974,8 @@ class GmailAtomParser: NSObject, XMLParserDelegate {
     }
 
     func parser(_ parser: XMLParser, foundCharacters string: String) {
-        let str = string.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !str.isEmpty else { return }
         if !inEntry && currentElement == "fullcount" {
-            fullCount = Int(str) ?? 0
+            currentFullCountString += string
         } else if inEntry {
             if currentElement == "title" {
                 currentTitle += string
@@ -2196,7 +1989,9 @@ class GmailAtomParser: NSObject, XMLParserDelegate {
     }
 
     func parser(_ parser: XMLParser, didEndElement elementName: String, namespaceURI: String?) {
-        if elementName == "entry" {
+        if elementName == "fullcount" {
+            fullCount = Int(currentFullCountString.trimmingCharacters(in: .whitespacesAndNewlines)) ?? 0
+        } else if elementName == "entry" {
             inEntry = false
             entries.append(GmailEntry(title: currentTitle.trimmingCharacters(in: .whitespacesAndNewlines),
                                       summary: currentSummary.trimmingCharacters(in: .whitespacesAndNewlines),
@@ -2811,6 +2606,7 @@ class WallpaperPickerView: NSView {
 
     deinit {
         stopWatchingFolder()
+        DistributedNotificationCenter.default().removeObserver(self)
     }
 
     override func viewWillMove(toWindow newWindow: NSWindow?) {
