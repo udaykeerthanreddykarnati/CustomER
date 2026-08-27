@@ -395,46 +395,43 @@ class FolderIconManager {
 
     private static func generateFolderIcon(folderName: String, bgColor: NSColor, accentColor: NSColor) -> NSImage {
         let size = NSSize(width: 512, height: 512)
-        let img = NSImage(size: size)
-        img.lockFocus()
-        
-        // Draw back tab
-        let tabPath = NSBezierPath(roundedRect: NSRect(x: 72, y: 310, width: 180, height: 90), xRadius: 18, yRadius: 18)
-        bgColor.setFill()
-        tabPath.fill()
-        NSColor.black.setStroke()
-        tabPath.lineWidth = 10
-        tabPath.stroke()
-        
-        // Draw front folder body
-        let bodyPath = NSBezierPath(roundedRect: NSRect(x: 56, y: 96, width: 400, height: 260), xRadius: 28, yRadius: 28)
-        bgColor.setFill()
-        bodyPath.fill()
-        NSColor.black.setStroke()
-        bodyPath.lineWidth = 10
-        bodyPath.stroke()
-        
-        // Draw top accent banner
-        let bannerPath = NSBezierPath(roundedRect: NSRect(x: 56, y: 300, width: 400, height: 56), xRadius: 14, yRadius: 14)
-        accentColor.setFill()
-        bannerPath.fill()
-        NSColor.black.setStroke()
-        bannerPath.lineWidth = 8
-        bannerPath.stroke()
-        
-        // Draw label text
-        let paragraph = NSMutableParagraphStyle()
-        paragraph.alignment = .center
-        let attrs: [NSAttributedString.Key: Any] = [
-            .font: NSFont.systemFont(ofSize: 42, weight: .black),
-            .foregroundColor: NSColor.black,
-            .paragraphStyle: paragraph
-        ]
-        let textRect = NSRect(x: 72, y: 180, width: 368, height: 60)
-        folderName.draw(in: textRect, withAttributes: attrs)
-        
-        img.unlockFocus()
-        return img
+        return NSImage(size: size, flipped: false) { rect in
+            // Draw back tab
+            let tabPath = NSBezierPath(roundedRect: NSRect(x: 72, y: 310, width: 180, height: 90), xRadius: 18, yRadius: 18)
+            bgColor.setFill()
+            tabPath.fill()
+            NSColor.black.setStroke()
+            tabPath.lineWidth = 10
+            tabPath.stroke()
+
+            // Draw front folder body
+            let bodyPath = NSBezierPath(roundedRect: NSRect(x: 56, y: 96, width: 400, height: 260), xRadius: 28, yRadius: 28)
+            bgColor.setFill()
+            bodyPath.fill()
+            NSColor.black.setStroke()
+            bodyPath.lineWidth = 10
+            bodyPath.stroke()
+
+            // Draw top accent banner
+            let bannerPath = NSBezierPath(roundedRect: NSRect(x: 56, y: 300, width: 400, height: 56), xRadius: 14, yRadius: 14)
+            accentColor.setFill()
+            bannerPath.fill()
+            NSColor.black.setStroke()
+            bannerPath.lineWidth = 8
+            bannerPath.stroke()
+
+            // Draw label text
+            let paragraph = NSMutableParagraphStyle()
+            paragraph.alignment = .center
+            let attrs: [NSAttributedString.Key: Any] = [
+                .font: NSFont.systemFont(ofSize: 42, weight: .black),
+                .foregroundColor: NSColor.black,
+                .paragraphStyle: paragraph
+            ]
+            let textRect = NSRect(x: 72, y: 180, width: 368, height: 60)
+            folderName.draw(in: textRect, withAttributes: attrs)
+            return true
+        }
     }
 }
 
