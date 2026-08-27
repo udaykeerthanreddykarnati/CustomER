@@ -2,7 +2,7 @@
 
 A lightweight, high-performance native macOS desktop widget suite & wallpaper manager built in pure Swift (AppKit, Carbon, IOKit).
 
-Designed to live directly on your desktop background with zero third-party dependencies, zero Electron bloat, and ultra-low RAM footprint (`~130 MB`).
+Designed to live directly on your desktop background with zero third-party dependencies, zero Electron bloat, and ultra-low RAM footprint (`~90 MB`).
 
 ---
 
