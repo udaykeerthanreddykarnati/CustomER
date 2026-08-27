@@ -1086,7 +1086,7 @@ class CalendarView: NSView {
             addSubview(lbl); dayViews.append(lbl)
         }
 
-        for _ in 0..<35 {
+        for _ in 0..<42 {
             let lbl = NSTextField(); lbl.font = dynamicFont(size: 11, weight: .bold); lbl.alignment = .center
             lbl.isEditable = false; lbl.isBordered = false; lbl.backgroundColor = .clear; lbl.wantsLayer = true; lbl.layer?.cornerRadius = 6
             let dclick = NSClickGestureRecognizer(target: self, action: #selector(dayDoubleClicked(_:)))
@@ -1103,12 +1103,12 @@ class CalendarView: NSView {
         titleLabel.frame = NSRect(x: 12, y: h - 28, width: w - 24, height: 18)
         legendLabel.frame = NSRect(x: 12, y: 6, width: w - 24, height: 14)
 
-        let gridX: CGFloat = 12, gridY: CGFloat = 24, colW = (w - 24) / 7.0, rowH = (h - 56) / 6.0
-        for i in 0..<7 { dayViews[i].frame = NSRect(x: gridX + CGFloat(i) * colW, y: gridY + 5 * rowH, width: colW, height: rowH) }
-        for r in 0..<5 {
+        let gridX: CGFloat = 12, gridY: CGFloat = 24, colW = (w - 24) / 7.0, rowH = (h - 56) / 7.0
+        for i in 0..<7 { dayViews[i].frame = NSRect(x: gridX + CGFloat(i) * colW, y: gridY + 6 * rowH, width: colW, height: rowH) }
+        for r in 0..<6 {
             for c in 0..<7 {
                 let idx = 7 + r * 7 + c
-                dayViews[idx].frame = NSRect(x: gridX + CGFloat(c) * colW, y: gridY + CGFloat(4 - r) * rowH, width: colW, height: rowH)
+                dayViews[idx].frame = NSRect(x: gridX + CGFloat(c) * colW, y: gridY + CGFloat(5 - r) * rowH, width: colW, height: rowH)
             }
         }
     }
@@ -1122,7 +1122,7 @@ class CalendarView: NSView {
         let fDate = cal.date(from: fComp)!, fWeekday = cal.component(.weekday, from: fDate) - 1
         let numDays = cal.range(of: .day, in: .month, for: now)!.count
 
-        for i in 0..<35 {
+        for i in 0..<42 {
             let lbl = dayViews[7 + i], dNum = i - fWeekday + 1
             let c = i % 7 // Column 0=Sun, 1=Mon, 2=Tue, 3=Wed, 4=Thu, 5=Fri, 6=Sat
 
