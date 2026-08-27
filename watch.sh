@@ -33,6 +33,7 @@ compile_and_run() {
         -framework AppKit \
         -framework Carbon \
         -framework IOKit \
+        -framework IOBluetooth \
         -o "$BIN" 2>&1)
 
     if [[ $? -ne 0 ]]; then
