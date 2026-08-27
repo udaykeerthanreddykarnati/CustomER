@@ -2028,9 +2028,24 @@ class SpotifyView: NSView {
         artTask?.resume()
     }
 
-    @objc private func onPrev() { _ = runScript("tell application \"Spotify\" to previous track"); DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) { [weak self] in self?.updateSpotifyInfo() } }
-    @objc private func onPlayPause() { _ = runScript("tell application \"Spotify\" to playpause"); DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) { [weak self] in self?.updateSpotifyInfo() } }
-    @objc private func onNext() { _ = runScript("tell application \"Spotify\" to next track"); DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) { [weak self] in self?.updateSpotifyInfo() } }
+    @objc private func onPrev() {
+        DispatchQueue.global(qos: .userInitiated).async {
+            _ = runScript("tell application \"Spotify\" to previous track")
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) { [weak self] in self?.updateSpotifyInfo() }
+        }
+    }
+    @objc private func onPlayPause() {
+        DispatchQueue.global(qos: .userInitiated).async {
+            _ = runScript("tell application \"Spotify\" to playpause")
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) { [weak self] in self?.updateSpotifyInfo() }
+        }
+    }
+    @objc private func onNext() {
+        DispatchQueue.global(qos: .userInitiated).async {
+            _ = runScript("tell application \"Spotify\" to next track")
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) { [weak self] in self?.updateSpotifyInfo() }
+        }
+    }
 
     private func listenForThemeChanges() {
         NotificationCenter.default.addObserver(self, selector: #selector(onThemeChanged), name: ThemeManager.notifName, object: nil)
@@ -3567,16 +3582,22 @@ class NotchWidgetView: NSView {
     }
 
     @objc private func onPrev() {
-        _ = runScript("tell application \"Spotify\" to previous track")
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { [weak self] in self?.checkSpotify() }
+        DispatchQueue.global(qos: .userInitiated).async {
+            _ = runScript("tell application \"Spotify\" to previous track")
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { [weak self] in self?.checkSpotify() }
+        }
     }
     @objc private func onPlayPause() {
-        _ = runScript("tell application \"Spotify\" to playpause")
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { [weak self] in self?.checkSpotify() }
+        DispatchQueue.global(qos: .userInitiated).async {
+            _ = runScript("tell application \"Spotify\" to playpause")
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { [weak self] in self?.checkSpotify() }
+        }
     }
     @objc private func onNext() {
-        _ = runScript("tell application \"Spotify\" to next track")
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { [weak self] in self?.checkSpotify() }
+        DispatchQueue.global(qos: .userInitiated).async {
+            _ = runScript("tell application \"Spotify\" to next track")
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { [weak self] in self?.checkSpotify() }
+        }
     }
 }
 
