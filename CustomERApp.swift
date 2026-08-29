@@ -2245,32 +2245,23 @@ class TimetableWidgetView: NSView {
     }
 
     private func colorForSubject(_ code: String) -> NSColor {
-        let bg = ThemeManager.shared.currentBgColor
-        let isDark: Bool
-        if let rgb = bg.usingColorSpace(.sRGB) {
-            let luminance = 0.299 * rgb.redComponent + 0.587 * rgb.greenComponent + 0.114 * rgb.blueComponent
-            isDark = luminance < 0.5
-        } else {
-            isDark = ThemeManager.shared.currentPreset == .glass
-        }
-
         switch code.uppercased() {
         case "DBMS":
-            return isDark ? NSColor(srgbRed: 0.22, green: 0.28, blue: 0.45, alpha: 0.9) : NSColor(srgbRed: 0.85, green: 0.88, blue: 0.98, alpha: 0.85)
+            return NSColor(srgbRed: 0.85, green: 0.88, blue: 0.98, alpha: 0.92)
         case "SE":
-            return isDark ? NSColor(srgbRed: 0.18, green: 0.38, blue: 0.26, alpha: 0.9) : NSColor(srgbRed: 0.84, green: 0.93, blue: 0.86, alpha: 0.85)
+            return NSColor(srgbRed: 0.84, green: 0.93, blue: 0.86, alpha: 0.92)
         case "ML":
-            return isDark ? NSColor(srgbRed: 0.35, green: 0.22, blue: 0.48, alpha: 0.9) : NSColor(srgbRed: 0.92, green: 0.86, blue: 0.98, alpha: 0.85)
+            return NSColor(srgbRed: 0.92, green: 0.86, blue: 0.98, alpha: 0.92)
         case "DA":
-            return isDark ? NSColor(srgbRed: 0.45, green: 0.35, blue: 0.18, alpha: 0.9) : NSColor(srgbRed: 0.98, green: 0.91, blue: 0.78, alpha: 0.85)
+            return NSColor(srgbRed: 0.98, green: 0.91, blue: 0.78, alpha: 0.92)
         case "GTA":
-            return isDark ? NSColor(srgbRed: 0.45, green: 0.22, blue: 0.26, alpha: 0.9) : NSColor(srgbRed: 0.98, green: 0.85, blue: 0.87, alpha: 0.85)
+            return NSColor(srgbRed: 0.98, green: 0.85, blue: 0.87, alpha: 0.92)
         case "DBMS LAB":
-            return isDark ? NSColor(srgbRed: 0.18, green: 0.38, blue: 0.45, alpha: 0.9) : NSColor(srgbRed: 0.82, green: 0.92, blue: 0.98, alpha: 0.85)
+            return NSColor(srgbRed: 0.82, green: 0.92, blue: 0.98, alpha: 0.92)
         case "ML LAB":
-            return isDark ? NSColor(srgbRed: 0.45, green: 0.18, blue: 0.38, alpha: 0.9) : NSColor(srgbRed: 0.97, green: 0.84, blue: 0.92, alpha: 0.85)
+            return NSColor(srgbRed: 0.97, green: 0.84, blue: 0.92, alpha: 0.92)
         default:
-            return isDark ? kSurface.withAlphaComponent(0.6) : kBg.withAlphaComponent(0.45)
+            return kBg.withAlphaComponent(0.60)
         }
     }
 
@@ -2325,6 +2316,7 @@ class TimetableWidgetView: NSView {
         }
 
         // 3. Draw Days and Classes
+        let tileTextColor = (ThemeManager.shared.currentPreset == .glass || ThemeManager.shared.currentTextColor == .white) ? (NSColor(hex: "#0F172A") ?? .black) : kText
         for (rowIdx, dayName) in days.enumerated() {
             let y = boundsH - CGFloat(rowIdx + 2) * rowH
             let isToday = (dayName == todayName)
@@ -2355,7 +2347,7 @@ class TimetableWidgetView: NSView {
                 cellBox.layer?.borderColor = kBorder.withAlphaComponent(0.5).cgColor
                 cellBox.layer?.backgroundColor = colorForSubject(item.code).cgColor
 
-                let cLabel = createLabel(text: item.code, size: item.span > 1 ? 11 : 10, weight: .bold, color: kText, align: .center)
+                let cLabel = createLabel(text: item.code, size: item.span > 1 ? 11 : 10, weight: .bold, color: tileTextColor, align: .center)
                 cLabel.frame = NSRect(x: 0, y: (rowH - 4 - 16)/2, width: cw - 4, height: 16)
                 cellBox.addSubview(cLabel)
 
