@@ -179,6 +179,8 @@ extension NSView {
                 let weight: NSFont.Weight = isBold ? .bold : .regular
                 tf.font = dynamicFont(size: currentFont.pointSize, weight: weight)
             }
+            tf.cell?.usesSingleLineMode = true
+            tf.cell?.lineBreakMode = .byTruncatingTail
         } else if let btn = self as? NSButton {
             if btn.tag != 100 {
                 btn.contentTintColor = activeText
@@ -350,16 +352,25 @@ class ThemeManager {
     }
 
     private var notifyDebounceWorkItem: DispatchWorkItem?
+    private var folderIconDebounceWorkItem: DispatchWorkItem?
 
     func notifyThemeChange() {
         notifyDebounceWorkItem?.cancel()
         let item = DispatchWorkItem { [weak self] in
-            guard let self = self else { return }
-            FolderIconManager.updateDesktopFolderIcons(bgColor: self.currentBgColor)
+            guard self != nil else { return }
             NotificationCenter.default.post(name: ThemeManager.notifName, object: nil)
+            DistributedNotificationCenter.default().postNotificationName(ThemeManager.notifName, object: nil, userInfo: nil, deliverImmediately: true)
         }
         notifyDebounceWorkItem = item
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1, execute: item)
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.05, execute: item)
+
+        folderIconDebounceWorkItem?.cancel()
+        let iconItem = DispatchWorkItem { [weak self] in
+            guard let self = self else { return }
+            FolderIconManager.updateDesktopFolderIcons(bgColor: self.currentBgColor)
+        }
+        folderIconDebounceWorkItem = iconItem
+        DispatchQueue.global(qos: .utility).asyncAfter(deadline: .now() + 0.6, execute: iconItem)
     }
 
     func resetCustomStyles() {
@@ -3689,11 +3700,6 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         if win.isVisible {
             win.orderOut(nil)
         } else {
-            if let activeApp = NSWorkspace.shared.frontmostApplication {
-                let bundleID = activeApp.bundleIdentifier ?? ""
-                let isDesktopActive = (bundleID == "com.apple.finder" || bundleID == "com.user.CustomERApp" || activeApp.processIdentifier == ProcessInfo.processInfo.processIdentifier)
-                if !isDesktopActive { return }
-            }
             win.level = .floating
             win.makeKeyAndOrderFront(nil)
             NSApp.activate(ignoringOtherApps: true)
@@ -3705,11 +3711,6 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         if win.isVisible {
             win.orderOut(nil)
         } else {
-            if let activeApp = NSWorkspace.shared.frontmostApplication {
-                let bundleID = activeApp.bundleIdentifier ?? ""
-                let isDesktopActive = (bundleID == "com.apple.finder" || bundleID == "com.user.CustomERApp" || activeApp.processIdentifier == ProcessInfo.processInfo.processIdentifier)
-                if !isDesktopActive { return }
-            }
             win.level = .floating
             win.makeKeyAndOrderFront(nil)
             NSApp.activate(ignoringOtherApps: true)
@@ -3717,6 +3718,10 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     @objc private func activeAppDidChange(_ notif: Notification) {
+        // Keep customizer and wallpaper panels open if Color Wheel or Font Picker is currently in use
+        if NSColorPanel.shared.isVisible || NSFontPanel.shared.isVisible {
+            return
+        }
         guard let app = notif.userInfo?[NSWorkspace.applicationUserInfoKey] as? NSRunningApplication else { return }
         let bundleID = app.bundleIdentifier ?? ""
         let isDesktopActive = (bundleID == "com.apple.finder" || bundleID == "com.user.CustomERApp" || app.processIdentifier == ProcessInfo.processInfo.processIdentifier)
