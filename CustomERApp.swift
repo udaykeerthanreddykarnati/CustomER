@@ -1369,7 +1369,46 @@ class CalendarView: NSView {
     }
 }
 
+extension NSObject {
+    func safeValue(forKey key: String) -> Any? {
+        var count: UInt32 = 0
+        guard let propList = class_copyPropertyList(type(of: self), &count) else { return nil }
+        defer { free(propList) }
+        for i in 0..<Int(count) {
+            let prop = propList[i]
+            if String(cString: property_getName(prop)) == key {
+                return self.value(forKey: key)
+            }
+        }
+        return nil
+    }
+}
+
 // MARK: - 3. BATTERY & DEVICES WIDGET (tutubattery)
+struct BTDeviceItem: Equatable {
+    var name: String
+    var singleBattery: Int?
+    var leftBattery: Int?
+    var rightBattery: Int?
+    var caseBattery: Int?
+    var isCharging: Bool
+
+    var displayString: String {
+        var parts: [String] = []
+        if let l = leftBattery, l > 0 { parts.append("L:\(l)%") }
+        if let r = rightBattery, r > 0 { parts.append("R:\(r)%") }
+        if let c = caseBattery, c > 0 { parts.append("Case:\(c)%") }
+        if parts.isEmpty {
+            if let s = singleBattery, s > 0 {
+                return isCharging ? "⚡ \(s)%" : "\(s)%"
+            }
+            return isCharging ? "⚡ CHARGING" : "N/A"
+        }
+        let joined = parts.joined(separator: " ")
+        return isCharging ? "⚡ \(joined)" : joined
+    }
+}
+
 class BatteryView: NSView {
     let widgetKey = "battery"
     private let macCard = NSView()
@@ -1383,7 +1422,7 @@ class BatteryView: NSView {
 
     private var timer: Timer?
     private var isFetching = false
-    private var lastDevices: [(name: String, battery: Int?)] = []
+    private var lastBTDevices: [BTDeviceItem] = []
     private var dragStart: NSPoint = .zero, initialWinOrigin: NSPoint = .zero, dragActive = false
 
     override init(frame: NSRect) { super.init(frame: frame); build(); listenForThemeChanges() }
@@ -1467,61 +1506,96 @@ class BatteryView: NSView {
         }
     }
 
-    private func getBTDevicesBackground() -> [(name: String, battery: Int?)] {
-        var list: [(name: String, battery: Int?)] = []
+    private func getBTDevicesBackground() -> [BTDeviceItem] {
+        var list: [BTDeviceItem] = []
+
         if let devices = IOBluetoothDevice.pairedDevices() as? [IOBluetoothDevice] {
             for d in devices where d.isConnected() {
                 let name = d.nameOrAddress ?? "Bluetooth Device"
-                var bat: Int? = nil
-                let keys = ["batteryPercentSingle", "batteryPercentCombined", "batteryPercentLeft", "batteryPercentRight", "batteryPercentCase"]
-                for k in keys {
-                    if let num = d.value(forKey: k) as? Int, num > 0 && num <= 100 {
-                        bat = max(bat ?? 0, num)
-                    }
-                }
-                list.append((name: name, battery: bat))
+                let s = (d.safeValue(forKey: "batteryPercentSingle") as? Int).flatMap { ($0 > 0 && $0 <= 100) ? $0 : nil }
+                let l = (d.safeValue(forKey: "batteryPercentLeft") as? Int).flatMap { ($0 > 0 && $0 <= 100) ? $0 : nil }
+                let r = (d.safeValue(forKey: "batteryPercentRight") as? Int).flatMap { ($0 > 0 && $0 <= 100) ? $0 : nil }
+                let c = (d.safeValue(forKey: "batteryPercentCase") as? Int).flatMap { ($0 > 0 && $0 <= 100) ? $0 : nil }
+                let combined = (d.safeValue(forKey: "batteryPercentCombined") as? Int).flatMap { ($0 > 0 && $0 <= 100) ? $0 : nil }
+                let headset = (d.safeValue(forKey: "headsetBatteryPercent") as? Int).flatMap { ($0 > 0 && $0 <= 100) ? $0 : nil }
+                let single = s ?? combined ?? headset
+                
+                let isCharging = (d.safeValue(forKey: "isCaseCharging") as? Bool == true) ||
+                                 (d.safeValue(forKey: "isLeftCharging") as? Bool == true) ||
+                                 (d.safeValue(forKey: "isRightCharging") as? Bool == true)
+                
+                list.append(BTDeviceItem(name: name, singleBattery: single, leftBattery: l, rightBattery: r, caseBattery: c, isCharging: isCharging))
             }
         }
-        if list.isEmpty {
-            let pipe = Pipe(), proc = Process()
-            proc.executableURL = URL(fileURLWithPath: "/usr/sbin/system_profiler")
-            proc.arguments = ["SPBluetoothDataType"]; proc.standardOutput = pipe
-            try? proc.run(); proc.waitUntilExit()
 
-            let data = pipe.fileHandleForReading.readDataToEndOfFile()
-            let str = String(data: data, encoding: .utf8) ?? ""
+        let pipe = Pipe(), proc = Process()
+        proc.executableURL = URL(fileURLWithPath: "/usr/sbin/system_profiler")
+        proc.arguments = ["SPBluetoothDataType"]; proc.standardOutput = pipe
+        try? proc.run(); proc.waitUntilExit()
 
-            if let connRange = str.range(of: "Connected:") {
-                let sub = str[connRange.upperBound...]
-                let connSection: String
-                if let notConnRange = sub.range(of: "Not Connected:") { connSection = String(sub[..<notConnRange.lowerBound]) }
-                else { connSection = String(sub) }
+        let data = pipe.fileHandleForReading.readDataToEndOfFile()
+        let str = String(data: data, encoding: .utf8) ?? ""
 
-                let lines = connSection.components(separatedBy: .newlines)
-                var currentName: String?
-                for line in lines {
-                    let trimmed = line.trimmingCharacters(in: .whitespaces)
-                    if line.hasPrefix("          ") && !line.hasPrefix("              ") {
-                        let name = trimmed.replacingOccurrences(of: ":", with: "")
-                        if !name.isEmpty { currentName = name }
-                    } else if line.contains("Battery Level:"), let name = currentName {
-                        if let range = line.range(of: "(\\d+)%", options: .regularExpression) {
-                            let numStr = line[range].replacingOccurrences(of: "%", with: "")
-                            list.append((name: name, battery: Int(numStr)))
-                            currentName = nil
-                        }
-                    }
+        if let connRange = str.range(of: "Connected:") {
+            let sub = str[connRange.upperBound...]
+            let connSection: String
+            if let notConnRange = sub.range(of: "Not Connected:") { connSection = String(sub[..<notConnRange.lowerBound]) }
+            else { connSection = String(sub) }
+
+            let lines = connSection.components(separatedBy: .newlines)
+            var currentName: String?
+            var curSingle: Int?, curLeft: Int?, curRight: Int?, curCase: Int?
+            var curCharging = false
+
+            func commitCurrent() {
+                guard let name = currentName else { return }
+                if let idx = list.firstIndex(where: { $0.name == name }) {
+                    if list[idx].singleBattery == nil { list[idx].singleBattery = curSingle }
+                    if list[idx].leftBattery == nil { list[idx].leftBattery = curLeft }
+                    if list[idx].rightBattery == nil { list[idx].rightBattery = curRight }
+                    if list[idx].caseBattery == nil { list[idx].caseBattery = curCase }
+                    if curCharging { list[idx].isCharging = true }
+                } else {
+                    list.append(BTDeviceItem(name: name, singleBattery: curSingle, leftBattery: curLeft, rightBattery: curRight, caseBattery: curCase, isCharging: curCharging))
                 }
-                if let name = currentName, !list.contains(where: { $0.name == name }) { list.append((name: name, battery: nil)) }
+                currentName = nil; curSingle = nil; curLeft = nil; curRight = nil; curCase = nil; curCharging = false
             }
+
+            for line in lines {
+                let trimmed = line.trimmingCharacters(in: .whitespaces)
+                if line.hasPrefix("          ") && !line.hasPrefix("              ") {
+                    commitCurrent()
+                    let name = trimmed.replacingOccurrences(of: ":", with: "")
+                    if !name.isEmpty { currentName = name }
+                } else if line.contains("Battery Level:"), let _ = currentName {
+                    if let range = line.range(of: "(\\d+)%", options: .regularExpression) {
+                        curSingle = Int(line[range].replacingOccurrences(of: "%", with: ""))
+                    }
+                } else if (line.contains("Left Battery Level:") || line.contains("Left:")), let _ = currentName {
+                    if let range = line.range(of: "(\\d+)%", options: .regularExpression) {
+                        curLeft = Int(line[range].replacingOccurrences(of: "%", with: ""))
+                    }
+                } else if (line.contains("Right Battery Level:") || line.contains("Right:")), let _ = currentName {
+                    if let range = line.range(of: "(\\d+)%", options: .regularExpression) {
+                        curRight = Int(line[range].replacingOccurrences(of: "%", with: ""))
+                    }
+                } else if (line.contains("Case Battery Level:") || line.contains("Case:")), let _ = currentName {
+                    if let range = line.range(of: "(\\d+)%", options: .regularExpression) {
+                        curCase = Int(line[range].replacingOccurrences(of: "%", with: ""))
+                    }
+                } else if (line.contains("Charging: Yes") || line.contains("State: Charging") || line.contains("Battery Status: Charging")), let _ = currentName {
+                    curCharging = true
+                }
+            }
+            commitCurrent()
         }
         return list
     }
 
-    private func renderBTDevices(_ devices: [(name: String, battery: Int?)]) {
-        let changed = devices.map { "\($0.name):\($0.battery ?? -1)" } != lastDevices.map { "\($0.name):\($0.battery ?? -1)" }
+    private func renderBTDevices(_ devices: [BTDeviceItem]) {
+        let changed = devices != lastBTDevices
         guard changed || btListContainer.subviews.isEmpty else { return }
-        lastDevices = devices
+        lastBTDevices = devices
         for sub in btListContainer.subviews { sub.removeFromSuperview() }
 
         if devices.isEmpty {
@@ -1539,24 +1613,29 @@ class BatteryView: NSView {
             devCard.wantsLayer = true; devCard.layer?.cornerRadius = kRadius / 2; devCard.layer?.backgroundColor = kSurface.cgColor
             devCard.layer?.borderWidth = kBorderWidth; devCard.layer?.borderColor = kBorder.cgColor
 
+            let batText = dev.displayString
+            let textFont = dynamicFont(size: 11, weight: .bold)
+            let textSize = (batText as NSString).size(withAttributes: [.font: textFont])
+            let badgeW = max(52, min(textSize.width + 16, containerW - 90))
+
             let nameTF = NSTextField()
             let nameCell = CenteredTextFieldCell(textCell: dev.name)
             nameCell.font = dynamicFont(size: 12, weight: .bold); nameCell.textColor = kText; nameCell.lineBreakMode = .byTruncatingTail
             nameTF.cell = nameCell; nameTF.stringValue = dev.name
             nameTF.isEditable = false; nameTF.isBordered = false; nameTF.backgroundColor = .clear
-            nameTF.frame = NSRect(x: 10, y: 8, width: containerW - 74, height: 24)
+            nameTF.frame = NSRect(x: 10, y: 8, width: containerW - badgeW - 20, height: 24)
             devCard.addSubview(nameTF)
 
-            let batText = dev.battery != nil ? "\(dev.battery!)%" : "N/A"
             let badgeTF = NSTextField()
             let badgeCell = CenteredTextFieldCell(textCell: batText)
-            badgeCell.alignment = .center; badgeCell.font = dynamicFont(size: 11, weight: .bold)
-            badgeCell.textColor = (ThemeManager.shared.currentPreset == .glass || ThemeManager.shared.currentPreset == .childish) ? .white : kSurface
+            badgeCell.alignment = .center; badgeCell.font = textFont
+            badgeCell.textColor = dev.isCharging ? .white : ((ThemeManager.shared.currentPreset == .glass || ThemeManager.shared.currentPreset == .childish) ? .white : kSurface)
             badgeTF.cell = badgeCell; badgeTF.stringValue = batText
             badgeTF.isEditable = false; badgeTF.isBordered = false
-            badgeTF.wantsLayer = true; badgeTF.layer?.cornerRadius = kRadius / 2; badgeTF.layer?.backgroundColor = kAccent.cgColor
+            badgeTF.wantsLayer = true; badgeTF.layer?.cornerRadius = kRadius / 2
+            badgeTF.layer?.backgroundColor = dev.isCharging ? NSColor(hex: "#10B981")!.cgColor : kAccent.cgColor
             badgeTF.layer?.borderWidth = kBorderWidth; badgeTF.layer?.borderColor = kBorder.cgColor
-            badgeTF.frame = NSRect(x: containerW - 60, y: 8, width: 48, height: 24)
+            badgeTF.frame = NSRect(x: containerW - badgeW - 10, y: 8, width: badgeW, height: 24)
             devCard.addSubview(badgeTF)
 
             btListContainer.addSubview(devCard)
