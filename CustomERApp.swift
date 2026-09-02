@@ -2267,11 +2267,11 @@ class TimetableWidgetView: NSView {
 
     // Schedule items: (startCol, span, subjectCode)
     private let schedule: [String: [(startCol: Int, span: Int, code: String)]] = [
-        "Monday":    [(1, 1, "DBMS"), (2, 1, "SE"), (4, 2, "GTA"), (7, 2, "DBMS LAB")],
-        "Tuesday":   [(1, 2, "DA"), (4, 1, "ML"), (5, 1, "DBMS")],
+        "Monday":    [(1, 1, "DBMS"), (2, 1, "ML"), (4, 2, "GTA"), (7, 2, "DBMS LAB")],
+        "Tuesday":   [(1, 2, "DA"), (4, 1, "ML"), (5, 1, "SE")],
         "Wednesday": [(1, 1, "SE"), (2, 1, "DBMS"), (4, 1, "SE"), (5, 1, "ML")],
         "Thursday":  [(1, 2, "GTA"), (4, 1, "DBMS"), (5, 1, "SE"), (7, 2, "ML LAB")],
-        "Friday":    [(1, 2, "ML"), (4, 2, "DA")]
+        "Friday":    [(1, 1, "ML"), (2, 1, "DBMS"), (4, 2, "DA")]
     ]
 
     override init(frame: NSRect) {
