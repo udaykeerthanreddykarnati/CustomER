@@ -1060,8 +1060,27 @@ class CalendarView: NSView {
     private var dayViews: [NSTextField] = []
     private var dragStart: NSPoint = .zero, initialWinOrigin: NSPoint = .zero, dragActive = false
 
-    override init(frame: NSRect) { super.init(frame: frame); build(); listenForThemeChanges() }
+    override init(frame: NSRect) {
+        super.init(frame: frame)
+        build()
+        listenForThemeChanges()
+        setupDailyRefresh()
+    }
     required init?(coder: NSCoder) { fatalError() }
+
+    private func setupDailyRefresh() {
+        NotificationCenter.default.addObserver(self, selector: #selector(onDayChanged), name: .NSCalendarDayChanged, object: nil)
+        NSWorkspace.shared.notificationCenter.addObserver(self, selector: #selector(onDayChanged), name: NSWorkspace.didWakeNotification, object: nil)
+        Timer.scheduledTimer(withTimeInterval: 60.0, repeats: true) { [weak self] _ in
+            self?.updateCalendar()
+        }
+    }
+
+    @objc private func onDayChanged() {
+        DispatchQueue.main.async {
+            self.updateCalendar()
+        }
+    }
 
     private func build() {
         wantsLayer = true; layer?.cornerRadius = kRadius; layer?.borderWidth = 0; layer?.borderColor = NSColor.clear.cgColor
@@ -3774,7 +3793,15 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         try? p2.run()
     }
 
+    func isDesktopOrAppFrontmost() -> Bool {
+        if NSColorPanel.shared.isVisible || NSFontPanel.shared.isVisible { return true }
+        guard let app = NSWorkspace.shared.frontmostApplication else { return false }
+        let bundleID = app.bundleIdentifier ?? ""
+        return bundleID == "com.apple.finder" || bundleID == "com.user.CustomERApp" || app.processIdentifier == ProcessInfo.processInfo.processIdentifier
+    }
+
     func toggleWallpaperWindow() {
+        guard isDesktopOrAppFrontmost() else { return }
         guard let win = wallpaperWindow else { return }
         if win.isVisible {
             win.orderOut(nil)
@@ -3786,6 +3813,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     func toggleThemeCustomizerWindow() {
+        guard isDesktopOrAppFrontmost() else { return }
         guard let win = themeCustomizerWindow else { return }
         if win.isVisible {
             win.orderOut(nil)
@@ -3801,10 +3829,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         if NSColorPanel.shared.isVisible || NSFontPanel.shared.isVisible {
             return
         }
-        guard let app = notif.userInfo?[NSWorkspace.applicationUserInfoKey] as? NSRunningApplication else { return }
-        let bundleID = app.bundleIdentifier ?? ""
-        let isDesktopActive = (bundleID == "com.apple.finder" || bundleID == "com.user.CustomERApp" || app.processIdentifier == ProcessInfo.processInfo.processIdentifier)
-        if !isDesktopActive {
+        if !isDesktopOrAppFrontmost() {
             wallpaperWindow?.orderOut(nil)
             themeCustomizerWindow?.orderOut(nil)
         }
