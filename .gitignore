@@ -2,23 +2,31 @@
 .DS_Store
 .AppleDouble
 .LSOverride
+Icon?
+Icon*
 
 # Executables & Build Artifacts
 *.o
 *.out
 CustomERApp
-CustomERApp_Test
-CustomERApp_ChildishTest
+CustomERApp_*
 bin/
 build/
-ClipManager/
 
-# User Data & Private Credentials
+# Nested standalone companion repositories
+ClipManager/
+synctask/
+
+# User Data, Personal Configs & Private Credentials
 gmail.json
+sync.json
 positions.json
 github.json
 theme.json
+timetable.json
+calendar_config.json
 *.key
+*.keystore
 *.pem
 *.env
 

@@ -1,14 +1,15 @@
 #!/bin/zsh
 # ─────────────────────────────────────────────────────────
 #  CustomER — Hot Reload Watcher
-#  Run this once:  chmod +x watch.sh && ./watch.sh
-#  Every time you save CustomERApp.swift it will:
+#  Run once:  chmod +x watch.sh && ./watch.sh
+#  Whenever you save any Swift file under Sources/, it will:
 #    1. Kill the running app
-#    2. Recompile
+#    2. Recompile all modules via build.sh
 #    3. Relaunch
 # ─────────────────────────────────────────────────────────
 
-SRC="$(dirname "$0")/CustomERApp.swift"
+DIR="$(cd "$(dirname "$0")" && pwd)"
+SRC_DIR="$DIR/Sources"
 BIN="/tmp/CustomERApp"
 APPNAME="CustomERApp"
 
@@ -21,46 +22,33 @@ NC='\033[0m'
 compile_and_run() {
     echo ""
     echo "${CYAN}──────────────────────────────────────────${NC}"
-    echo "${YELLOW}🔄  Change detected — reloading...${NC}"
+    echo "${YELLOW}Change detected — reloading...${NC}"
 
-    # Kill existing instance
-    pkill -x "$APPNAME" 2>/dev/null
+    pkill -x "$APPNAME" 2>/dev/null || true
     sleep 0.2
 
-    # Compile
-    echo "${YELLOW}⚙️   Compiling...${NC}"
-    ERRORS=$(swiftc -O "$SRC" \
-        -framework AppKit \
-        -framework Carbon \
-        -framework IOKit \
-        -framework IOBluetooth \
-        -o "$BIN" 2>&1)
+    echo "${YELLOW}Compiling...${NC}"
+    ERRORS=$("$DIR/build.sh" "$BIN" 2>&1)
 
     if [[ $? -ne 0 ]]; then
-        echo "${RED}❌  Compile error:${NC}"
+        echo "${RED}Compile error:${NC}"
         echo "$ERRORS"
-        echo "${YELLOW}⚠️   Fix the error and save again to retry.${NC}"
+        echo "${YELLOW}Fix the error and save again to retry.${NC}"
         return
     fi
 
-    echo "${GREEN}✅  Compiled OK${NC}"
-
-    # Relaunch
+    echo "${GREEN}Compiled OK${NC}"
     "$BIN" &
-    echo "${GREEN}🚀  Launched! (PID $!)${NC}"
+    echo "${GREEN}Launched! (PID $!)${NC}"
     echo "${CYAN}──────────────────────────────────────────${NC}"
 }
 
-echo "${CYAN}╔══════════════════════════════════════════╗${NC}"
-echo "${CYAN}║   CustomER  Hot-Reload Watcher  🔥        ║${NC}"
-echo "${CYAN}╚══════════════════════════════════════════╝${NC}"
-echo "Watching: ${YELLOW}$SRC${NC}"
+echo "${CYAN}CustomER Hot-Reload Watcher${NC}"
+echo "Watching: ${YELLOW}$SRC_DIR${NC}"
 echo "Press ${RED}Ctrl+C${NC} to stop."
 
-# Initial build on start
 compile_and_run
 
-# Watch for changes
-fswatch -o --event Updated --event Created "$SRC" | while read; do
+fswatch -o -e ".*" -i "\\.swift$" "$SRC_DIR" | while read; do
     compile_and_run
 done
