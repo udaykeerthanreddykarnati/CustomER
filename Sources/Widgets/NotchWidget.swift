@@ -241,9 +241,11 @@ class NotchWidgetView: NSView {
     private var isDraggingFileOver = false
     private var geometry = NotchGeometry.current()
 
-    // Fixed max canvas size — we morph layers inside without resizing NSWindow (silky 120Hz!)
-    static let canvasWidth: CGFloat = 620
-    static let canvasHeight: CGFloat = 220
+    // Initial compact idle window size — NSWindow shrinks/grows dynamically with notch state
+    // so collapsed states NEVER block clicks over apps below the menu bar.
+    static func idleWindowSize(for geom: NotchGeometry) -> NSSize {
+        NSSize(width: geom.hardwareWidth + 16, height: geom.hardwareHeight)
+    }
 
     private let openWidth: CGFloat = 570
     private let openHeight: CGFloat = 196
@@ -312,6 +314,7 @@ class NotchWidgetView: NSView {
     private var artTask: URLSessionDataTask?
 
     private var localTickTimer: Timer?
+    private var openWatchdogTimer: Timer?
     private var resyncCounter = 0
     private var hoverOpenWorkItem: DispatchWorkItem?
     private var hoverCloseWorkItem: DispatchWorkItem?
@@ -319,6 +322,10 @@ class NotchWidgetView: NSView {
     private var currentTrackingArea: NSTrackingArea?
     private var currentNotchRect: NSRect = .zero
     private var powerRunLoopSource: CFRunLoopSource?
+    private var isTransitioningWindowFrame = false
+    private var isAnimatingCollapse = false
+    private var transitionGen: Int = 0
+    private var lastLaidOutSize: NSSize = .zero
 
     override init(frame: NSRect) {
         super.init(frame: frame)
@@ -333,6 +340,7 @@ class NotchWidgetView: NSView {
 
     deinit {
         localTickTimer?.invalidate()
+        openWatchdogTimer?.invalidate()
         artTask?.cancel()
         hoverOpenWorkItem?.cancel()
         hoverCloseWorkItem?.cancel()
@@ -537,7 +545,37 @@ class NotchWidgetView: NSView {
         shelfContainer.addSubview(clearShelfBtn)
     }
 
-    // MARK: - Notch Rect Calculations & Layout
+    // MARK: - Notch Rect Calculations, Dynamic Window Sizing & Layout
+    private func windowSize(for targetState: NotchState) -> NSSize {
+        let hw = geometry.hardwareWidth
+        let hh = geometry.hardwareHeight
+        switch targetState {
+        case .idle:
+            // Strictly physical notch + 8px top concave ears; 0px below menu bar
+            return NSSize(width: hw + 16, height: hh)
+        case .liveActivity:
+            // Strictly inside the menu bar strip; 0px below menu bar
+            return NSSize(width: hw + 86, height: hh)
+        case .sneak:
+            // Passive track-change banner (ignoresMouseEvents = true while shown)
+            return NSSize(width: max(hw + 140, 340) + 4, height: hh + 30)
+        case .open:
+            // Small outer margin so thick theme borders never clip on left/right/bottom
+            return NSSize(width: openWidth + 4, height: openHeight + 4)
+        }
+    }
+
+    private func windowFrame(for targetState: NotchState) -> NSRect {
+        let sf = geometry.screenFrame
+        let sz = windowSize(for: targetState)
+        return NSRect(
+            x: sf.midX - sz.width / 2.0,
+            y: sf.maxY - sz.height,
+            width: sz.width,
+            height: sz.height
+        )
+    }
+
     private func rectForState(_ targetState: NotchState) -> (rect: NSRect, topR: CGFloat, bottomR: CGFloat) {
         let midX = bounds.width / 2.0
         let topY = bounds.height
@@ -562,9 +600,71 @@ class NotchWidgetView: NSView {
 
     private func applyState(_ newState: NotchState, animated: Bool) {
         state = newState
+        transitionGen += 1
+        let myGen = transitionGen
+
+        let targetWinFrame = windowFrame(for: newState)
+        var translatedStartPath: CGPath? = shapeLayer.presentation()?.path ?? shapeLayer.path
+        let startFill: CGColor = shapeLayer.presentation()?.fillColor ?? shapeLayer.fillColor ?? NSColor.black.cgColor
+        var needsDelayedShrink = false
+
+        if let w = window {
+            let oldFrame = w.frame
+            let isGrowing = targetWinFrame.width > oldFrame.width + 0.5 || targetWinFrame.height > oldFrame.height + 0.5
+            let isShrinking = targetWinFrame.width < oldFrame.width - 0.5 || targetWinFrame.height < oldFrame.height - 0.5
+
+            if !animated {
+                isAnimatingCollapse = false
+                if isGrowing || isShrinking {
+                    isTransitioningWindowFrame = true
+                    CATransaction.begin()
+                    CATransaction.setDisableActions(true)
+                    w.setFrame(targetWinFrame, display: false)
+                    CATransaction.commit()
+                    isTransitioningWindowFrame = false
+                }
+                w.ignoresMouseEvents = (newState == .sneak)
+            } else if isGrowing {
+                // Grow NSWindow first so the spring morph has room, translating in-flight path to new local coords (0 flicker)
+                isAnimatingCollapse = false
+                let animSize = NSSize(
+                    width: max(oldFrame.width, targetWinFrame.width),
+                    height: max(oldFrame.height, targetWinFrame.height)
+                )
+                let animFrame = NSRect(
+                    x: geometry.screenFrame.midX - animSize.width / 2.0,
+                    y: geometry.screenFrame.maxY - animSize.height,
+                    width: animSize.width,
+                    height: animSize.height
+                )
+                if let live = translatedStartPath {
+                    var t = CGAffineTransform(
+                        translationX: oldFrame.minX - animFrame.minX,
+                        y: oldFrame.minY - animFrame.minY
+                    )
+                    translatedStartPath = live.copy(using: &t) ?? live
+                }
+                isTransitioningWindowFrame = true
+                CATransaction.begin()
+                CATransaction.setDisableActions(true)
+                w.setFrame(animFrame, display: false)
+                w.ignoresMouseEvents = (newState == .sneak)
+                CATransaction.commit()
+                isTransitioningWindowFrame = false
+            } else if isShrinking {
+                // Immediately let clicks pass straight through to apps underneath (0ms latency),
+                // smoothly morph upward inside the current window, then shrink NSWindow tightly.
+                w.ignoresMouseEvents = true
+                isAnimatingCollapse = true
+                needsDelayedShrink = true
+            } else {
+                isAnimatingCollapse = false
+                w.ignoresMouseEvents = (newState == .sneak)
+            }
+        }
+
         let spec = rectForState(newState)
         currentNotchRect = spec.rect
-
         let newPath = NotchGeometry.makeNotchPath(in: spec.rect, topEarRadius: spec.topR, bottomRadius: spec.bottomR)
 
         // When idle/liveActivity/sneak: stay sleek black around physical camera cutout with themed rim.
@@ -574,28 +674,9 @@ class NotchWidgetView: NSView {
             ? kBorder.cgColor
             : (newState == .idle ? NSColor.clear.cgColor : kAccent.withAlphaComponent(0.75).cgColor)
 
-        if animated {
-            let pathAnim = CASpringAnimation(keyPath: "path")
-            pathAnim.fromValue = shapeLayer.presentation()?.path ?? shapeLayer.path
-            pathAnim.toValue = newPath
-            pathAnim.damping = 24
-            pathAnim.stiffness = 340
-            pathAnim.mass = 0.85
-            pathAnim.duration = pathAnim.settlingDuration
-
-            shapeLayer.add(pathAnim, forKey: "notchPathMorph")
-            strokeLayer.add(pathAnim, forKey: "notchStrokeMorph")
-            contentMaskLayer.add(pathAnim, forKey: "notchMaskMorph")
-
-            let fillAnim = CABasicAnimation(keyPath: "fillColor")
-            fillAnim.fromValue = shapeLayer.presentation()?.fillColor ?? shapeLayer.fillColor
-            fillAnim.toValue = targetFill
-            fillAnim.duration = 0.22
-            shapeLayer.add(fillAnim, forKey: "notchFill")
-        }
-
         CATransaction.begin()
         CATransaction.setDisableActions(true)
+        contentHost.frame = bounds
         shapeLayer.path = newPath
         shapeLayer.fillColor = targetFill
         strokeLayer.path = newPath
@@ -609,8 +690,39 @@ class NotchWidgetView: NSView {
         let capRect = NSRect(x: bounds.width / 2 - capW / 2, y: bounds.height - capH, width: capW, height: capH)
         cameraCapLayer.path = NotchGeometry.makeNotchPath(in: capRect, topEarRadius: 7, bottomRadius: 10)
         cameraCapLayer.isHidden = (newState != .open || !geometry.hasPhysicalNotch)
+
+        if animated, let fromPath = translatedStartPath {
+            let pathAnim = CASpringAnimation(keyPath: "path")
+            pathAnim.fromValue = fromPath
+            pathAnim.toValue = newPath
+            if needsDelayedShrink {
+                pathAnim.damping = 30
+                pathAnim.stiffness = 460
+                pathAnim.mass = 0.70
+            } else {
+                pathAnim.damping = 24
+                pathAnim.stiffness = 340
+                pathAnim.mass = 0.85
+            }
+            pathAnim.duration = pathAnim.settlingDuration
+
+            shapeLayer.add(pathAnim, forKey: "notchPathMorph")
+            strokeLayer.add(pathAnim, forKey: "notchStrokeMorph")
+            contentMaskLayer.add(pathAnim, forKey: "notchMaskMorph")
+
+            let fillAnim = CABasicAnimation(keyPath: "fillColor")
+            fillAnim.fromValue = startFill
+            fillAnim.toValue = targetFill
+            fillAnim.duration = 0.20
+            shapeLayer.add(fillAnim, forKey: "notchFill")
+        } else {
+            shapeLayer.removeAllAnimations()
+            strokeLayer.removeAllAnimations()
+            contentMaskLayer.removeAllAnimations()
+        }
         CATransaction.commit()
 
+        lastLaidOutSize = bounds.size
         layoutSubviewsForCurrentState()
         updateTrackingRegion()
 
@@ -638,7 +750,74 @@ class NotchWidgetView: NSView {
         if showOpen {
             refreshGlancePanel()
             updateBatteryBadge()
+            startOpenWatchdog()
+        } else {
+            stopOpenWatchdog()
         }
+
+        if needsDelayedShrink {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) { [weak self] in
+                guard let self = self, self.transitionGen == myGen, self.state == newState else { return }
+                self.shrinkWindowToSettledState()
+            }
+        }
+    }
+
+    private func shrinkWindowToSettledState() {
+        guard let w = window else {
+            isAnimatingCollapse = false
+            return
+        }
+        let targetFrame = windowFrame(for: state)
+        isTransitioningWindowFrame = true
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        shapeLayer.removeAllAnimations()
+        strokeLayer.removeAllAnimations()
+        contentMaskLayer.removeAllAnimations()
+
+        if abs(w.frame.width - targetFrame.width) > 0.5 || abs(w.frame.height - targetFrame.height) > 0.5 ||
+           abs(w.frame.minX - targetFrame.minX) > 0.5 || abs(w.frame.minY - targetFrame.minY) > 0.5 {
+            w.setFrame(targetFrame, display: true)
+        }
+
+        contentHost.frame = bounds
+        let spec = rectForState(state)
+        currentNotchRect = spec.rect
+        let settledPath = NotchGeometry.makeNotchPath(in: spec.rect, topEarRadius: spec.topR, bottomRadius: spec.bottomR)
+        shapeLayer.path = settledPath
+        strokeLayer.path = settledPath
+        contentMaskLayer.path = settledPath
+
+        let capW = geometry.hardwareWidth + 12
+        let capH = geometry.hardwareHeight
+        let capRect = NSRect(x: bounds.width / 2 - capW / 2, y: bounds.height - capH, width: capW, height: capH)
+        cameraCapLayer.path = NotchGeometry.makeNotchPath(in: capRect, topEarRadius: 7, bottomRadius: 10)
+        cameraCapLayer.isHidden = (state != .open || !geometry.hasPhysicalNotch)
+
+        lastLaidOutSize = bounds.size
+        layoutSubviewsForCurrentState()
+        updateTrackingRegion()
+        w.ignoresMouseEvents = (state == .sneak)
+        CATransaction.commit()
+        isAnimatingCollapse = false
+        isTransitioningWindowFrame = false
+    }
+
+    private func startOpenWatchdog() {
+        guard openWatchdogTimer == nil else { return }
+        openWatchdogTimer = Timer.scheduledTimer(withTimeInterval: 0.45, repeats: true) { [weak self] _ in
+            guard let self = self, self.state == .open, !self.isPinned, !self.isDraggingFileOver,
+                  let w = self.window else { return }
+            if !w.frame.insetBy(dx: -8, dy: -8).contains(NSEvent.mouseLocation) {
+                self.scheduleCollapse(delay: 0.12)
+            }
+        }
+    }
+
+    private func stopOpenWatchdog() {
+        openWatchdogTimer?.invalidate()
+        openWatchdogTimer = nil
     }
 
     private func layoutSubviewsForCurrentState() {
@@ -654,6 +833,8 @@ class NotchWidgetView: NSView {
         compactArtView.frame = NSRect(x: midX - hw / 2 - artDim - 10, y: wingY, width: artDim, height: artDim)
         compactEqView.frame  = NSRect(x: midX + hw / 2 + 10, y: topY - hh + (hh - 14) / 2, width: 24, height: 14)
         sneakLabel.frame     = NSRect(x: midX - 145, y: topY - hh - 22, width: 290, height: 18)
+
+        guard state == .open || bounds.height >= openHeight else { return }
 
         // 2. Expanded panel bounds (inset past top concave ears)
         let openSpec = rectForState(.open)
@@ -720,6 +901,9 @@ class NotchWidgetView: NSView {
 
     override func layout() {
         super.layout()
+        guard !isTransitioningWindowFrame, !isAnimatingCollapse else { return }
+        guard bounds.size != lastLaidOutSize else { return }
+        lastLaidOutSize = bounds.size
         applyState(state, animated: false)
     }
 
@@ -822,7 +1006,7 @@ class NotchWidgetView: NSView {
     override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
 
     override func hitTest(_ point: NSPoint) -> NSView? {
-        let local = convert(point, from: nil)
+        let local = convert(point, from: superview)
         guard currentNotchRect.contains(local) else { return nil }
         return super.hitTest(point)
     }
@@ -831,9 +1015,13 @@ class NotchWidgetView: NSView {
         if let existing = currentTrackingArea {
             removeTrackingArea(existing)
         }
-        // Slightly generous hit strip at the very top edge so moving cursor to top-center opens effortlessly
-        let trackRect = currentNotchRect.insetBy(dx: -6, dy: 0)
-        let area = NSTrackingArea(rect: trackRect, options: [.mouseEnteredAndExited, .activeAlways], owner: self, userInfo: nil)
+        let trackRect = bounds.intersection(currentNotchRect.insetBy(dx: -4, dy: -2))
+        let area = NSTrackingArea(
+            rect: trackRect.isEmpty ? bounds : trackRect,
+            options: [.mouseEnteredAndExited, .activeAlways],
+            owner: self,
+            userInfo: nil
+        )
         currentTrackingArea = area
         addTrackingArea(area)
     }
@@ -857,7 +1045,7 @@ class NotchWidgetView: NSView {
         scheduleCollapse()
     }
 
-    private func scheduleCollapse(delay: TimeInterval = 0.35) {
+    private func scheduleCollapse(delay: TimeInterval = 0.28) {
         hoverCloseWorkItem?.cancel()
         let item = DispatchWorkItem { [weak self] in
             guard let self = self, !self.isPinned, !self.isDraggingFileOver else { return }
@@ -902,6 +1090,10 @@ class NotchWidgetView: NSView {
         shelfDropBox.layer?.borderColor = kAccent.cgColor
         shelfDropBox.layer?.borderWidth = 2.0
         return .copy
+    }
+
+    override func draggingUpdated(_ sender: NSDraggingInfo) -> NSDragOperation {
+        isDraggingFileOver ? .copy : []
     }
 
     override func draggingExited(_ sender: NSDraggingInfo?) {
@@ -1102,9 +1294,11 @@ class NotchWidgetView: NSView {
     func repositionWindowToTopCenter() {
         guard let w = window else { return }
         geometry = NotchGeometry.current(for: w.screen ?? NSScreen.main)
-        let sf = geometry.screenFrame
-        let origin = NSPoint(x: sf.midX - Self.canvasWidth / 2, y: sf.maxY - Self.canvasHeight)
-        w.setFrame(NSRect(origin: origin, size: NSSize(width: Self.canvasWidth, height: Self.canvasHeight)), display: true)
+        isTransitioningWindowFrame = true
+        w.setFrame(windowFrame(for: state), display: true)
+        isTransitioningWindowFrame = false
+        lastLaidOutSize = .zero
+        applyState(state, animated: false)
     }
 
     @objc private func onAppTerminated(_ notif: Notification) {

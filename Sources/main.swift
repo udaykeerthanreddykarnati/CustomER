@@ -139,14 +139,13 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
     private func setupNotchWidget(hidden: Bool) {
         let geom = NotchGeometry.current(for: NSScreen.main)
-        let w = NotchWidgetView.canvasWidth
-        let h = NotchWidgetView.canvasHeight
+        let initialSize = NotchWidgetView.idleWindowSize(for: geom)
         let origin = NSPoint(
-            x: geom.screenFrame.midX - w / 2,
-            y: geom.screenFrame.maxY - h
+            x: geom.screenFrame.midX - initialSize.width / 2,
+            y: geom.screenFrame.maxY - initialSize.height
         )
         let notchWin = NotchWidgetWindow(
-            contentRect: NSRect(origin: origin, size: NSSize(width: w, height: h)),
+            contentRect: NSRect(origin: origin, size: initialSize),
             styleMask: [.borderless, .nonactivatingPanel],
             backing: .buffered,
             defer: false
@@ -159,7 +158,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         notchWin.collectionBehavior = [.canJoinAllSpaces, .stationary, .ignoresCycle, .fullScreenAuxiliary]
         notchWin.hasShadow = false
         notchWin.ignoresMouseEvents = false
-        notchWin.contentView = NotchWidgetView(frame: NSRect(origin: .zero, size: NSSize(width: w, height: h)))
+        notchWin.contentView = NotchWidgetView(frame: NSRect(origin: .zero, size: initialSize))
         let shouldHide = savedVisibility["notch"].map { !$0 } ?? hidden
         if !shouldHide { notchWin.orderFrontRegardless() }
         widgetWindows["notch"] = notchWin
@@ -230,11 +229,25 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                 win.orderOut(nil)
                 self.setWidgetVisible(widgetKey, visible: false)
             case "show", "open":
-                win.makeKeyAndOrderFront(nil)
+                if widgetKey == "notch" {
+                    (win.contentView as? NotchWidgetView)?.repositionWindowToTopCenter()
+                    win.orderFrontRegardless()
+                } else {
+                    win.makeKeyAndOrderFront(nil)
+                }
                 self.setWidgetVisible(widgetKey, visible: true)
             case "toggle":
                 let nextVisible = !win.isVisible
-                if nextVisible { win.makeKeyAndOrderFront(nil) } else { win.orderOut(nil) }
+                if nextVisible {
+                    if widgetKey == "notch" {
+                        (win.contentView as? NotchWidgetView)?.repositionWindowToTopCenter()
+                        win.orderFrontRegardless()
+                    } else {
+                        win.makeKeyAndOrderFront(nil)
+                    }
+                } else {
+                    win.orderOut(nil)
+                }
                 self.setWidgetVisible(widgetKey, visible: nextVisible)
             default: break
             }
