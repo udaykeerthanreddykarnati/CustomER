@@ -198,14 +198,46 @@ extension NSImage {
 }
 
 class CenteredTextFieldCell: NSTextFieldCell {
-    override func drawingRect(forBounds rect: NSRect) -> NSRect {
-        let newRect = super.drawingRect(forBounds: rect)
-        let textSize = cellSize(forBounds: rect)
-        let heightDelta = newRect.height - textSize.height
-        if heightDelta > 0 {
-            return NSRect(x: newRect.origin.x, y: newRect.origin.y + (heightDelta / 2.0), width: newRect.width, height: textSize.height)
+    var opticalCapCenter: Bool = true
+
+    override func drawInterior(withFrame cellFrame: NSRect, in controlView: NSView) {
+        let raw = attributedStringValue
+        guard raw.length > 0 else { return }
+
+        let font = (raw.attribute(.font, at: 0, effectiveRange: nil) as? NSFont)
+            ?? self.font
+            ?? NSFont.systemFont(ofSize: 12)
+        let color = (raw.attribute(.foregroundColor, at: 0, effectiveRange: nil) as? NSColor)
+            ?? self.textColor
+            ?? .labelColor
+
+        let para = NSMutableParagraphStyle()
+        para.alignment = alignment
+        para.lineBreakMode = lineBreakMode
+
+        let styled = NSMutableAttributedString(attributedString: raw)
+        let fullRange = NSRange(location: 0, length: styled.length)
+        styled.addAttribute(.paragraphStyle, value: para, range: fullRange)
+        styled.addAttribute(.foregroundColor, value: color, range: fullRange)
+        styled.addAttribute(.font, value: font, range: fullRange)
+
+        let textSize = styled.size()
+        let y: CGFloat
+        if opticalCapCenter {
+            // Position uppercase/digit visual cap-height center directly on cellFrame.midY
+            let visualMidFromTop = (font.ascender - font.capHeight) + (font.capHeight / 2.0)
+            y = cellFrame.minY + (cellFrame.height / 2.0) - visualMidFromTop
+        } else {
+            y = cellFrame.minY + (cellFrame.height - textSize.height) / 2.0
         }
-        return newRect
+
+        let drawRect = NSRect(
+            x: cellFrame.minX,
+            y: round(y * 2.0) / 2.0,
+            width: cellFrame.width,
+            height: ceil(textSize.height) + 2.0
+        )
+        styled.draw(with: drawRect, options: [.usesLineFragmentOrigin, .truncatesLastVisibleLine])
     }
 }
 
@@ -360,7 +392,7 @@ final class ThemeManager {
             FolderIconManager.updateDesktopFolderIcons(bgColor: bg, accentColor: accent)
         }
         folderIconDebounceWorkItem = iconItem
-        DispatchQueue.global(qos: .utility).asyncAfter(deadline: .now() + 0.6, execute: iconItem)
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.6, execute: iconItem)
     }
 
     func resetCustomStyles() {
@@ -376,10 +408,15 @@ final class ThemeManager {
     }
 }
 
-// MARK: - Desktop Folder Icon Tinter
+// MARK: - Desktop Folder Icon Tinter (Strictly Serialized on Main Thread for Carbon Safety)
 enum FolderIconManager {
+    private static var generation: Int = 0
+
     static func updateDesktopFolderIcons(bgColor: NSColor, accentColor: NSColor = ThemeManager.shared.currentAccentColor) {
-        DispatchQueue.global(qos: .utility).async {
+        DispatchQueue.main.async {
+            generation += 1
+            let myGen = generation
+
             let desktop = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Desktop")
             guard let files = try? FileManager.default.contentsOfDirectory(
                 at: desktop,
@@ -387,15 +424,25 @@ enum FolderIconManager {
                 options: [.skipsHiddenFiles]
             ) else { return }
 
-            for url in files {
+            let folders = files.filter { url in
                 var isDir: ObjCBool = false
-                if FileManager.default.fileExists(atPath: url.path, isDirectory: &isDir),
-                   isDir.boolValue,
-                   url.pathExtension != "app" {
-                    let icon = generateFolderIcon(folderName: url.lastPathComponent, bgColor: bgColor, accentColor: accentColor)
-                    NSWorkspace.shared.setIcon(icon, forFile: url.path, options: [])
+                return FileManager.default.fileExists(atPath: url.path, isDirectory: &isDir)
+                    && isDir.boolValue
+                    && url.pathExtension != "app"
+            }
+
+            // Apply one folder per run-loop hop on main thread so NSWorkspace.setIcon
+            // (Carbon Resource Manager) never races and never blocks UI responsiveness.
+            func applyNext(index: Int) {
+                guard myGen == generation, index < folders.count else { return }
+                let url = folders[index]
+                let icon = generateFolderIcon(folderName: url.lastPathComponent, bgColor: bgColor, accentColor: accentColor)
+                NSWorkspace.shared.setIcon(icon, forFile: url.path, options: [])
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.03) {
+                    applyNext(index: index + 1)
                 }
             }
+            applyNext(index: 0)
         }
     }
 

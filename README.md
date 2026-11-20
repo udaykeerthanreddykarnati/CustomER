@@ -81,7 +81,7 @@ CustomER/
 - **GIF Widget (`GifWidget`)**: Loads the first `.gif` in `~/Pictures/CustomERGifs/`. Click to play/pause, drag to move.
 - **Wallpaper Switcher (`Option + W`)**: Auto-watching grid of `~/Pictures/Wallpapers` (or any chosen folder) with animated wallpaper transitions.
 - **Theme Customizer (`Option + E`)**: Cycle presets (`MINIMAL`, `GLASS`, `CHILDISH`), pick any system font, or customize text/widget colors with the native color wheel.
-- **Dynamic Island Notch (`NotchWidget`)**: Hidden by default; toggle anytime via IPC or `widget_visibility.json`.
+- **Dynamic Notch (`NotchWidget`)**: BoringNotch-inspired interactive notch hugging your MacBook's physical camera cutout with concave top ears and spring-morphed expansion in your live CustomER theme. Hover to open, see live album art & equalizer wings on track playback, scrub Spotify/Apple Music, check off active tasks inline, or drag files straight onto the notch for the built-in File Shelf & AirDrop tray.
 
 ---
 

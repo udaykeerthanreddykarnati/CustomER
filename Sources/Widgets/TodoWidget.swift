@@ -520,13 +520,16 @@ class TodoView: BaseWidgetView {
     required init?(coder: NSCoder) { fatalError() }
 
     private func build() {
-        header.stringValue = "tututodo"
-        header.font = dynamicFont(size: 17, weight: .bold); header.textColor = kText
-        header.isEditable = false; header.isBordered = false; header.backgroundColor = .clear
+        let headerCell = CenteredTextFieldCell(textCell: "tututodo")
+        headerCell.alignment = .left; headerCell.font = dynamicFont(size: 17, weight: .bold); headerCell.textColor = kText
+        header.cell = headerCell; header.stringValue = "tututodo"
+        header.isEditable = false; header.isBordered = false; header.drawsBackground = false; header.backgroundColor = .clear
         addSubview(header)
 
-        badge.font = dynamicFont(size: 10, weight: .bold); badge.textColor = kText; badge.alignment = .center
-        badge.isEditable = false; badge.isBordered = false; badge.backgroundColor = .clear; badge.wantsLayer = true
+        let badgeCell = CenteredTextFieldCell(textCell: "")
+        badgeCell.alignment = .center; badgeCell.font = dynamicFont(size: 10, weight: .bold); badgeCell.textColor = kText
+        badge.cell = badgeCell
+        badge.isEditable = false; badge.isBordered = false; badge.drawsBackground = false; badge.backgroundColor = .clear; badge.wantsLayer = true
         badge.layer?.cornerRadius = kRadius / 2; badge.layer?.borderWidth = kBorderWidth; badge.layer?.borderColor = kBorder.cgColor
         badge.layer?.backgroundColor = kSurface.cgColor
         addSubview(badge)
@@ -566,8 +569,8 @@ class TodoView: BaseWidgetView {
     override func layout() {
         super.layout()
         let w = bounds.width, h = bounds.height
-        header.frame    = NSRect(x: 16, y: h - 42, width: 120, height: 24)
-        badge.frame     = NSRect(x: 140, y: h - 37, width: 26, height: 18)
+        header.frame    = NSRect(x: 14, y: h - 40, width: 88, height: 24)
+        badge.frame     = NSRect(x: 106, y: h - 38, width: 26, height: 20)
         addBtn.frame    = NSRect(x: w - 78, y: h - 40, width: 64, height: 24)
 
         let tabW = (w - 28) / 2

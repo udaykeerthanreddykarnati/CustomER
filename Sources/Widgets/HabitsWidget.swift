@@ -316,7 +316,6 @@ class HabitsView: BaseWidgetView {
     private let panel     = AddHabitPanel()
     private let header    = NSTextField()
     private let badge     = NSTextField()
-    private let resetInfo = NSTextField()
     private let addBtn    = NSButton()
     private var refreshTimer: Timer?
 
@@ -353,21 +352,19 @@ class HabitsView: BaseWidgetView {
     }
 
     private func build() {
-        header.stringValue = "DAILY HABITS"
-        header.font = dynamicFont(size: 14, weight: .bold); header.textColor = kText
-        header.isEditable = false; header.isBordered = false; header.backgroundColor = .clear
+        let headerCell = CenteredTextFieldCell(textCell: "DAILY HABITS")
+        headerCell.alignment = .left; headerCell.font = dynamicFont(size: 13.5, weight: .bold); headerCell.textColor = kText
+        header.cell = headerCell; header.stringValue = "DAILY HABITS"
+        header.isEditable = false; header.isBordered = false; header.drawsBackground = false; header.backgroundColor = .clear
         addSubview(header)
 
-        badge.font = dynamicFont(size: 10, weight: .bold); badge.textColor = kText; badge.alignment = .center
-        badge.isEditable = false; badge.isBordered = false; badge.backgroundColor = .clear; badge.wantsLayer = true
+        let badgeCell = CenteredTextFieldCell(textCell: "")
+        badgeCell.alignment = .center; badgeCell.font = dynamicFont(size: 10, weight: .bold); badgeCell.textColor = kText
+        badge.cell = badgeCell
+        badge.isEditable = false; badge.isBordered = false; badge.drawsBackground = false; badge.backgroundColor = .clear; badge.wantsLayer = true
         badge.layer?.cornerRadius = kRadius / 2; badge.layer?.borderWidth = kBorderWidth; badge.layer?.borderColor = kBorder.cgColor
         badge.layer?.backgroundColor = kSurface.cgColor
         addSubview(badge)
-
-        resetInfo.stringValue = "Resets daily at 2:00 AM"
-        resetInfo.font = dynamicFont(size: 9, weight: .medium); resetInfo.textColor = kDim; resetInfo.tag = 99
-        resetInfo.isEditable = false; resetInfo.isBordered = false; resetInfo.backgroundColor = .clear
-        addSubview(resetInfo)
 
         addBtn.title = "+ Add"; addBtn.font = dynamicFont(size: 11, weight: .bold); addBtn.isBordered = false
         addBtn.wantsLayer = true; addBtn.layer?.cornerRadius = kRadius / 2; addBtn.layer?.borderWidth = kBorderWidth; addBtn.layer?.borderColor = kBorder.cgColor
@@ -388,12 +385,11 @@ class HabitsView: BaseWidgetView {
     override func layout() {
         super.layout()
         let w = bounds.width, h = bounds.height
-        header.frame    = NSRect(x: 12, y: h - 34, width: 110, height: 22)
-        badge.frame     = NSRect(x: 126, y: h - 33, width: 64, height: 20)
-        resetInfo.frame = NSRect(x: 12, y: h - 48, width: 140, height: 14)
-        addBtn.frame    = NSRect(x: w - 68, y: h - 34, width: 56, height: 22)
-        scroll.frame    = NSRect(x: 8, y: 8, width: w - 16, height: h - 60)
-        panel.frame     = NSRect(x: 8, y: h - 146, width: w - 16, height: 86)
+        header.frame = NSRect(x: 12, y: h - 34, width: 108, height: 22)
+        badge.frame  = NSRect(x: 124, y: h - 34, width: 66, height: 22)
+        addBtn.frame = NSRect(x: w - 68, y: h - 34, width: 56, height: 22)
+        scroll.frame = NSRect(x: 8, y: 8, width: w - 16, height: h - 46)
+        panel.frame  = NSRect(x: 8, y: h - 132, width: w - 16, height: 86)
         layoutList()
     }
 

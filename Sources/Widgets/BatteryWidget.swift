@@ -23,12 +23,11 @@ struct BTDeviceItem: Equatable {
         if let c = caseBattery, c > 0 { parts.append("Case:\(c)%") }
         if parts.isEmpty {
             if let s = singleBattery, s > 0 {
-                return isCharging ? "⚡ \(s)%" : "\(s)%"
+                return "\(s)%"
             }
-            return isCharging ? "⚡ CHARGING" : "N/A"
+            return isCharging ? "CHARGING" : "N/A"
         }
-        let joined = parts.joined(separator: " ")
-        return isCharging ? "⚡ \(joined)" : joined
+        return parts.joined(separator: " ")
     }
 }
 
@@ -62,28 +61,42 @@ class BatteryView: BaseWidgetView {
         }
     }
 
+    private var lastBTContainerSize: NSSize = .zero
+
     private func build() {
         macCard.wantsLayer = true; macCard.layer?.cornerRadius = kRadius / 2; macCard.layer?.backgroundColor = kSurface.cgColor
         macCard.layer?.borderWidth = kBorderWidth; macCard.layer?.borderColor = kBorder.cgColor; addSubview(macCard)
 
-        macPctLabel.font = dynamicFont(size: 32, weight: .bold); macPctLabel.textColor = kText
-        macPctLabel.isEditable = false; macPctLabel.isBordered = false; macPctLabel.backgroundColor = .clear; macCard.addSubview(macPctLabel)
+        let pctCell = CenteredTextFieldCell(textCell: "100%")
+        pctCell.alignment = .left; pctCell.font = dynamicFont(size: 30, weight: .bold); pctCell.textColor = kText
+        pctCell.usesSingleLineMode = true; pctCell.lineBreakMode = .byClipping
+        macPctLabel.cell = pctCell
+        macPctLabel.isEditable = false; macPctLabel.isBordered = false; macPctLabel.drawsBackground = false; macPctLabel.backgroundColor = .clear
+        macCard.addSubview(macPctLabel)
 
         let statusCell = CenteredTextFieldCell(textCell: "")
-        statusCell.alignment = .center; statusCell.font = dynamicFont(size: 11, weight: .bold); statusCell.textColor = .white
-        macStatusLabel.cell = statusCell; macStatusLabel.isEditable = false; macStatusLabel.isBordered = false; macStatusLabel.tag = 100
+        statusCell.alignment = .center; statusCell.font = dynamicFont(size: 10, weight: .bold); statusCell.textColor = .white
+        statusCell.usesSingleLineMode = true; statusCell.lineBreakMode = .byClipping
+        macStatusLabel.cell = statusCell
+        macStatusLabel.isEditable = false; macStatusLabel.isBordered = false
+        macStatusLabel.drawsBackground = false; macStatusLabel.backgroundColor = .clear
+        macStatusLabel.tag = 100
         macStatusLabel.wantsLayer = true; macStatusLabel.layer?.cornerRadius = kRadius / 2; macStatusLabel.layer?.backgroundColor = kAccent.cgColor
-        macStatusLabel.layer?.borderWidth = kBorderWidth; macStatusLabel.layer?.borderColor = kBorder.cgColor; macCard.addSubview(macStatusLabel)
+        macStatusLabel.layer?.borderWidth = kBorderWidth; macStatusLabel.layer?.borderColor = kBorder.cgColor
+        macCard.addSubview(macStatusLabel)
 
         macProgressBar.wantsLayer = true; macProgressBar.layer?.cornerRadius = kRadius / 2; macProgressBar.layer?.backgroundColor = kSurface.cgColor
-        macProgressBar.layer?.borderWidth = kBorderWidth; macProgressBar.layer?.borderColor = kBorder.cgColor; macCard.addSubview(macProgressBar)
+        macProgressBar.layer?.borderWidth = kBorderWidth; macProgressBar.layer?.borderColor = kBorder.cgColor
+        macProgressBar.layer?.masksToBounds = true
+        macCard.addSubview(macProgressBar)
 
-        macProgressFill.wantsLayer = true; macProgressFill.layer?.cornerRadius = kRadius / 2; macProgressFill.layer?.backgroundColor = kAccent.cgColor
+        macProgressFill.wantsLayer = true; macProgressFill.layer?.cornerRadius = 0; macProgressFill.layer?.backgroundColor = kAccent.cgColor
         macProgressBar.addSubview(macProgressFill)
 
         btHeaderLabel.stringValue = "BLUETOOTH DEVICES"
         btHeaderLabel.font = dynamicFont(size: 10, weight: .bold); btHeaderLabel.textColor = kDim; btHeaderLabel.tag = 99
-        btHeaderLabel.isEditable = false; btHeaderLabel.isBordered = false; btHeaderLabel.backgroundColor = .clear; addSubview(btHeaderLabel)
+        btHeaderLabel.isEditable = false; btHeaderLabel.isBordered = false; btHeaderLabel.drawsBackground = false; btHeaderLabel.backgroundColor = .clear
+        addSubview(btHeaderLabel)
 
         addSubview(btListContainer)
         updateMacBatteryUI()
@@ -120,35 +133,74 @@ class BatteryView: BaseWidgetView {
     override func layout() {
         super.layout()
         let w = bounds.width, h = bounds.height
-        macCard.frame = NSRect(x: 12, y: h - 100, width: w - 24, height: 88)
-        macPctLabel.frame = NSRect(x: 12, y: 40, width: 120, height: 38)
-        macStatusLabel.frame = NSRect(x: w - 136, y: 46, width: 98, height: 26)
-        macProgressBar.frame = NSRect(x: 12, y: 14, width: w - 48, height: 18)
-        btHeaderLabel.frame = NSRect(x: 14, y: h - 124, width: w - 28, height: 16)
+        let cardW = w - 24
+        macCard.frame = NSRect(x: 12, y: h - 100, width: cardW, height: 88)
+        macProgressBar.frame = NSRect(x: 12, y: 12, width: cardW - 24, height: 18)
+        btHeaderLabel.frame = NSRect(x: 12, y: h - 124, width: w - 24, height: 16)
         btListContainer.frame = NSRect(x: 12, y: 12, width: w - 24, height: h - 142)
+
         updateMacBatteryUI()
+
+        if btListContainer.bounds.size != lastBTContainerSize {
+            lastBTContainerSize = btListContainer.bounds.size
+            renderBTDevices(lastBTDevices, force: true)
+        }
     }
 
     private func updateMacBatteryUI() {
-        let (pct, charging) = getMacBatteryInfo()
+        let (pct, onAC, isActivelyCharging) = getMacBatteryInfo()
         macPctLabel.stringValue = "\(pct)%"
-        macStatusLabel.isHidden = !charging
-        if charging { macStatusLabel.stringValue = "CHARGING" }
-        let fillW = macProgressBar.bounds.width * (CGFloat(pct) / 100.0)
-        macProgressFill.frame = NSRect(x: 0, y: 0, width: fillW, height: macProgressBar.bounds.height)
+
+        let cardW = macCard.bounds.width > 0 ? macCard.bounds.width : (bounds.width - 24)
+        let pad: CGFloat = 12
+        // Top region inside macCard is y = 30..88 (vertical midpoint = 59)
+        let topMidY: CGFloat = 59
+
+        if onAC {
+            let statusText = isActivelyCharging ? "CHARGING" : (pct >= 99 ? "FULL" : "PLUGGED IN")
+            let statusFont = dynamicFont(size: 10, weight: .bold)
+            macStatusLabel.font = statusFont
+            macStatusLabel.stringValue = statusText
+            macStatusLabel.textColor = .white
+            macStatusLabel.layer?.backgroundColor = isActivelyCharging
+                ? (NSColor(hex: "#10B981") ?? kAccent).cgColor
+                : kAccent.cgColor
+            macStatusLabel.isHidden = false
+
+            let textW = ceil((statusText as NSString).size(withAttributes: [.font: statusFont]).width)
+            let badgeW = max(78, min(textW + 20, cardW * 0.46))
+            let badgeH: CGFloat = 24
+            macStatusLabel.frame = NSRect(x: cardW - badgeW - pad, y: topMidY - badgeH / 2, width: badgeW, height: badgeH)
+            let pctH: CGFloat = 40
+            macPctLabel.frame = NSRect(x: pad, y: topMidY - pctH / 2, width: max(80, cardW - badgeW - pad * 2 - 8), height: pctH)
+        } else {
+            macStatusLabel.isHidden = true
+            let pctH: CGFloat = 40
+            macPctLabel.frame = NSRect(x: pad, y: topMidY - pctH / 2, width: cardW - pad * 2, height: pctH)
+        }
+
+        let inset = kBorderWidth
+        let innerW = max(0, macProgressBar.bounds.width - inset * 2)
+        let innerH = max(0, macProgressBar.bounds.height - inset * 2)
+        let clampedPct = CGFloat(max(0, min(100, pct))) / 100.0
+        macProgressFill.frame = NSRect(x: inset, y: inset, width: innerW * clampedPct, height: innerH)
+        macProgressFill.layer?.backgroundColor = isActivelyCharging
+            ? (NSColor(hex: "#10B981") ?? kAccent).cgColor
+            : kAccent.cgColor
     }
 
-    private func getMacBatteryInfo() -> (percent: Int, isCharging: Bool) {
+    private func getMacBatteryInfo() -> (percent: Int, onAC: Bool, isCharging: Bool) {
         let snapshot = IOPSCopyPowerSourcesInfo().takeRetainedValue()
         let sources = IOPSCopyPowerSourcesList(snapshot).takeRetainedValue() as [CFTypeRef]
         for src in sources {
             if let info = IOPSGetPowerSourceDescription(snapshot, src).takeUnretainedValue() as? [String: Any] {
                 let capacity = info[kIOPSCurrentCapacityKey] as? Int ?? 100
-                let isCharging = (info[kIOPSPowerSourceStateKey] as? String) == kIOPSACPowerValue
-                return (capacity, isCharging)
+                let onAC = (info[kIOPSPowerSourceStateKey] as? String) == kIOPSACPowerValue
+                let isCharging = (info[kIOPSIsChargingKey] as? Bool) ?? onAC
+                return (capacity, onAC, isCharging)
             }
         }
-        return (100, false)
+        return (100, false, false)
     }
 
     private func fetchBTDevicesAsync(forceProfiler: Bool) {
@@ -318,8 +370,8 @@ class BatteryView: BaseWidgetView {
             let nameCell = CenteredTextFieldCell(textCell: dev.name)
             nameCell.font = dynamicFont(size: 12, weight: .bold); nameCell.textColor = kText; nameCell.lineBreakMode = .byTruncatingTail
             nameTF.cell = nameCell; nameTF.stringValue = dev.name
-            nameTF.isEditable = false; nameTF.isBordered = false; nameTF.backgroundColor = .clear
-            nameTF.frame = NSRect(x: 10, y: 8, width: containerW - badgeW - 20, height: 24)
+            nameTF.isEditable = false; nameTF.isBordered = false; nameTF.drawsBackground = false; nameTF.backgroundColor = .clear
+            nameTF.frame = NSRect(x: 10, y: 8, width: containerW - badgeW - 24, height: 24)
             devCard.addSubview(nameTF)
 
             let badgeTF = NSTextField()
@@ -328,6 +380,7 @@ class BatteryView: BaseWidgetView {
             badgeCell.textColor = dev.isCharging ? .white : ((ThemeManager.shared.currentPreset == .glass || ThemeManager.shared.currentPreset == .childish) ? .white : kSurface)
             badgeTF.cell = badgeCell; badgeTF.stringValue = batText; badgeTF.tag = 100
             badgeTF.isEditable = false; badgeTF.isBordered = false
+            badgeTF.drawsBackground = false; badgeTF.backgroundColor = .clear
             badgeTF.wantsLayer = true; badgeTF.layer?.cornerRadius = kRadius / 2
             badgeTF.layer?.backgroundColor = dev.isCharging ? NSColor(hex: "#10B981")!.cgColor : kAccent.cgColor
             badgeTF.layer?.borderWidth = kBorderWidth; badgeTF.layer?.borderColor = kBorder.cgColor

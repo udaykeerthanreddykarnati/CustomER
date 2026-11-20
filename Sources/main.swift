@@ -77,7 +77,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             object: nil
         )
 
-        DispatchQueue.global(qos: .utility).async {
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
             FolderIconManager.updateDesktopFolderIcons(
                 bgColor: ThemeManager.shared.currentBgColor,
                 accentColor: ThemeManager.shared.currentAccentColor
@@ -120,8 +120,8 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         let styleWin = spawnWidget(key: "theme_customizer", defaultRect: NSRect(x: 612, y: 540, width: 486, height: 75), hidden: true) { ThemeCustomizerView(frame: $0) }
         themeCustomizerWindow = styleWin
 
-        // 15. Optional Dynamic Island Notch Widget (Hidden by default; toggle via IPC or widget_visibility.json)
-        setupNotchWidget(hidden: true)
+        // 15. BoringNotch-Style Themed Dynamic Notch (Enabled by default; toggle with `widgets hide notch`)
+        setupNotchWidget(hidden: false)
 
         setupHotkeys()
     }
@@ -138,26 +138,28 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     private func setupNotchWidget(hidden: Bool) {
-        let notchW: CGFloat = 210, notchH: CGFloat = 34
-        let screen = NSScreen.main
-        let defaultOrigin = NSPoint(
-            x: (screen?.frame.midX ?? 600) - notchW / 2,
-            y: (screen?.frame.maxY ?? 900) - notchH
+        let geom = NotchGeometry.current(for: NSScreen.main)
+        let w = NotchWidgetView.canvasWidth
+        let h = NotchWidgetView.canvasHeight
+        let origin = NSPoint(
+            x: geom.screenFrame.midX - w / 2,
+            y: geom.screenFrame.maxY - h
         )
-        let notchOrigin = PositionManager.shared.getPosition(key: "notch", defaultOrigin: defaultOrigin, size: NSSize(width: notchW, height: notchH))
         let notchWin = NotchWidgetWindow(
-            contentRect: NSRect(origin: notchOrigin, size: NSSize(width: notchW, height: notchH)),
-            styleMask: [.borderless],
+            contentRect: NSRect(origin: origin, size: NSSize(width: w, height: h)),
+            styleMask: [.borderless, .nonactivatingPanel],
             backing: .buffered,
             defer: false
         )
+        notchWin.isFloatingPanel = true
+        notchWin.hidesOnDeactivate = false
         notchWin.isOpaque = false
         notchWin.backgroundColor = .clear
-        notchWin.level = NSWindow.Level(rawValue: Int(CGWindowLevelForKey(.statusWindow)) + 1)
-        notchWin.collectionBehavior = [.canJoinAllSpaces, .ignoresCycle, .fullScreenAuxiliary]
+        notchWin.level = NSWindow.Level(rawValue: Int(CGWindowLevelForKey(.statusWindow)) + 3)
+        notchWin.collectionBehavior = [.canJoinAllSpaces, .stationary, .ignoresCycle, .fullScreenAuxiliary]
         notchWin.hasShadow = false
         notchWin.ignoresMouseEvents = false
-        notchWin.contentView = NotchWidgetView(frame: NSRect(origin: .zero, size: NSSize(width: notchW, height: notchH)))
+        notchWin.contentView = NotchWidgetView(frame: NSRect(origin: .zero, size: NSSize(width: w, height: h)))
         let shouldHide = savedVisibility["notch"].map { !$0 } ?? hidden
         if !shouldHide { notchWin.orderFrontRegardless() }
         widgetWindows["notch"] = notchWin

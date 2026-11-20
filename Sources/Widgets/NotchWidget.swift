@@ -1,238 +1,1141 @@
 import AppKit
 import Foundation
+import IOKit.ps
 
-// MARK: - 15. DYNAMIC ISLAND / NOTCH SPOTIFY WIDGET (Event-Driven)
+// MARK: - Hardware Notch Geometry Detection
+struct NotchGeometry {
+    let screenFrame: NSRect
+    let hardwareWidth: CGFloat
+    let hardwareHeight: CGFloat
+    let hasPhysicalNotch: Bool
+
+    static func current(for screen: NSScreen? = NSScreen.main) -> NotchGeometry {
+        let s = screen ?? NSScreen.screens.first
+        let frame = s?.frame ?? NSRect(x: 0, y: 0, width: 1440, height: 900)
+
+        if let s = s,
+           s.safeAreaInsets.top > 0,
+           let left = s.auxiliaryTopLeftArea,
+           let right = s.auxiliaryTopRightArea {
+            let notchW = max(160, frame.width - left.width - right.width)
+            let notchH = max(30, s.safeAreaInsets.top)
+            return NotchGeometry(screenFrame: frame, hardwareWidth: notchW, hardwareHeight: notchH, hasPhysicalNotch: true)
+        }
+
+        return NotchGeometry(screenFrame: frame, hardwareWidth: 185, hardwareHeight: 32, hasPhysicalNotch: false)
+    }
+
+    /// Generates an authentic BoringNotch silhouette with concave top ears that merge into the top screen bezel
+    /// and convex rounded bottom corners. Constant segment count enables buttery CoreAnimation path morphing.
+    static func makeNotchPath(in rect: CGRect, topEarRadius tR: CGFloat, bottomRadius bR: CGFloat) -> CGPath {
+        let path = CGMutablePath()
+        let L = rect.minX
+        let R = rect.maxX
+        let B = rect.minY
+        let T = rect.maxY
+
+        let safeTR = min(tR, rect.width * 0.2, rect.height * 0.45)
+        let safeBR = min(bR, (rect.width - 2 * safeTR) * 0.45, rect.height - safeTR)
+
+        // Start at top-left outer ear tip (flush with screen top edge)
+        path.move(to: CGPoint(x: L, y: T))
+        // Concave top-left ear curving smoothly downward into left vertical wall
+        path.addQuadCurve(to: CGPoint(x: L + safeTR, y: T - safeTR), control: CGPoint(x: L + safeTR, y: T))
+        // Left vertical wall
+        path.addLine(to: CGPoint(x: L + safeTR, y: B + safeBR))
+        // Convex bottom-left corner
+        path.addQuadCurve(to: CGPoint(x: L + safeTR + safeBR, y: B), control: CGPoint(x: L + safeTR, y: B))
+        // Bottom edge
+        path.addLine(to: CGPoint(x: R - safeTR - safeBR, y: B))
+        // Convex bottom-right corner
+        path.addQuadCurve(to: CGPoint(x: R - safeTR, y: B + safeBR), control: CGPoint(x: R - safeTR, y: B))
+        // Right vertical wall
+        path.addLine(to: CGPoint(x: R - safeTR, y: T - safeTR))
+        // Concave top-right ear curving smoothly outward into top screen edge
+        path.addQuadCurve(to: CGPoint(x: R, y: T), control: CGPoint(x: R - safeTR, y: T))
+        path.closeSubpath()
+        return path
+    }
+}
+
+// MARK: - Equalizer Bars (Themed)
 class NotchEqualizerView: NSView {
     var isPlaying: Bool = false { didSet { isPlaying ? start() : stop() } }
-    private var barHeights: [CGFloat] = [0.3, 0.6, 0.4, 0.8]
+    var barColor: NSColor = .white { didSet { needsDisplay = true } }
+    private var barHeights: [CGFloat] = [0.35, 0.75, 0.50, 0.90]
     private var animTimer: Timer?
 
     deinit { animTimer?.invalidate() }
 
     private func start() {
         guard animTimer == nil else { return }
-        animTimer = Timer.scheduledTimer(withTimeInterval: 0.18, repeats: true) { [weak self] _ in
-            self?.barHeights = (0..<4).map { _ in CGFloat.random(in: 0.2...1.0) }
+        animTimer = Timer.scheduledTimer(withTimeInterval: 0.16, repeats: true) { [weak self] _ in
+            self?.barHeights = (0..<4).map { _ in CGFloat.random(in: 0.22...1.0) }
             self?.needsDisplay = true
         }
     }
 
     private func stop() {
         animTimer?.invalidate(); animTimer = nil
-        barHeights = [0.15, 0.15, 0.15, 0.15]
+        barHeights = [0.22, 0.22, 0.22, 0.22]
         needsDisplay = true
     }
 
     override func draw(_ dirtyRect: NSRect) {
         super.draw(dirtyRect)
-        guard let ctx = NSGraphicsContext.current?.cgContext else { return }
-        let barCount = 4, gap: CGFloat = 2
+        let barCount = 4, gap: CGFloat = 2.0
         let barW = (bounds.width - CGFloat(barCount - 1) * gap) / CGFloat(barCount)
         let maxH = bounds.height
-        ctx.setFillColor(NSColor.white.withAlphaComponent(0.9).cgColor)
+        barColor.setFill()
         for i in 0..<barCount {
-            let h = max(2.0, maxH * barHeights[i])
+            let h = max(2.5, maxH * barHeights[i])
             let rect = CGRect(x: CGFloat(i) * (barW + gap), y: (maxH - h) / 2.0, width: barW, height: h)
-            NSBezierPath(roundedRect: rect, xRadius: 1.5, yRadius: 1.5).fill()
+            NSBezierPath(roundedRect: rect, xRadius: 1.2, yRadius: 1.2).fill()
         }
     }
 }
 
+// MARK: - Scrubbable Themed Progress Bar
 class NotchProgressView: NSView {
     var progress: CGFloat = 0.0 { didSet { needsDisplay = true } }
+    var onSeek: ((CGFloat) -> Void)?
+
     override func draw(_ dirtyRect: NSRect) {
         super.draw(dirtyRect)
-        guard let ctx = NSGraphicsContext.current?.cgContext else { return }
-        let trackRect = bounds.insetBy(dx: 0, dy: (bounds.height - 3) / 2)
-        ctx.setFillColor(NSColor.white.withAlphaComponent(0.12).cgColor)
-        NSBezierPath(roundedRect: trackRect, xRadius: 1.5, yRadius: 1.5).fill()
+        let trackH: CGFloat = 5.0
+        let trackRect = NSRect(x: 0, y: (bounds.height - trackH) / 2, width: bounds.width, height: trackH)
+
+        kSurface.setFill()
+        NSBezierPath(rect: trackRect).fill()
+        kBorder.withAlphaComponent(0.55).setStroke()
+        let border = NSBezierPath(rect: trackRect)
+        border.lineWidth = 1.0
+        border.stroke()
+
         let fillW = max(0, min(bounds.width * progress, bounds.width))
         if fillW > 0 {
-            let fillRect = NSRect(x: 0, y: trackRect.minY, width: fillW, height: trackRect.height)
-            ctx.setFillColor(NSColor.white.cgColor)
-            NSBezierPath(roundedRect: fillRect, xRadius: 1.5, yRadius: 1.5).fill()
+            kAccent.setFill()
+            NSBezierPath(rect: NSRect(x: 0, y: trackRect.minY, width: fillW, height: trackH)).fill()
         }
+    }
+
+    private func seekFromEvent(_ event: NSEvent) {
+        let loc = convert(event.locationInWindow, from: nil)
+        let frac = max(0, min(1, loc.x / max(1, bounds.width)))
+        progress = frac
+        onSeek?(frac)
+    }
+
+    override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
+
+    override func mouseDown(with event: NSEvent) { seekFromEvent(event) }
+    override func mouseDragged(with event: NSEvent) { seekFromEvent(event) }
+}
+
+// MARK: - Shelf File Card (Drag Out / Click to Open / Remove)
+final class ShelfItemView: NSView, NSDraggingSource {
+    let fileURL: URL
+    var onRemove: ((URL) -> Void)?
+
+    private let iconView = NSImageView()
+    private let nameLabel = NSTextField()
+    private let removeBtn = NSButton()
+    private var mouseDownPoint: NSPoint = .zero
+    private var didStartDrag = false
+
+    init(url: URL) {
+        self.fileURL = url
+        super.init(frame: .zero)
+        build()
+    }
+    required init?(coder: NSCoder) { fatalError() }
+
+    private func build() {
+        wantsLayer = true
+        layer?.backgroundColor = kSurface.cgColor
+        layer?.borderColor = kBorder.cgColor
+        layer?.borderWidth = kBorderWidth
+
+        iconView.image = NSWorkspace.shared.icon(forFile: fileURL.path)
+        iconView.imageScaling = .scaleProportionallyUpOrDown
+        addSubview(iconView)
+
+        nameLabel.stringValue = fileURL.lastPathComponent
+        nameLabel.font = dynamicFont(size: 9.5, weight: .bold)
+        nameLabel.textColor = kText
+        nameLabel.alignment = .center
+        nameLabel.lineBreakMode = .byTruncatingMiddle
+        nameLabel.isEditable = false; nameLabel.isBordered = false; nameLabel.backgroundColor = .clear
+        addSubview(nameLabel)
+
+        removeBtn.title = "✕"
+        removeBtn.font = dynamicFont(size: 8.5, weight: .bold)
+        removeBtn.isBordered = false
+        removeBtn.contentTintColor = kDim
+        removeBtn.target = self; removeBtn.action = #selector(removeTapped)
+        addSubview(removeBtn)
+    }
+
+    override func layout() {
+        super.layout()
+        let w = bounds.width, h = bounds.height
+        iconView.frame = NSRect(x: (w - 34) / 2, y: h - 46, width: 34, height: 34)
+        nameLabel.frame = NSRect(x: 4, y: 6, width: w - 8, height: 22)
+        removeBtn.frame = NSRect(x: w - 18, y: h - 18, width: 16, height: 16)
+    }
+
+    @objc private func removeTapped() { onRemove?(fileURL) }
+
+    override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
+
+    override func mouseDown(with event: NSEvent) {
+        mouseDownPoint = convert(event.locationInWindow, from: nil)
+        didStartDrag = false
+    }
+
+    override func mouseDragged(with event: NSEvent) {
+        guard !didStartDrag else { return }
+        let pt = convert(event.locationInWindow, from: nil)
+        if hypot(pt.x - mouseDownPoint.x, pt.y - mouseDownPoint.y) < 4 { return }
+        didStartDrag = true
+
+        let item = NSDraggingItem(pasteboardWriter: fileURL as NSURL)
+        let icon = NSWorkspace.shared.icon(forFile: fileURL.path)
+        item.setDraggingFrame(NSRect(x: pt.x - 20, y: pt.y - 20, width: 40, height: 40), contents: icon)
+        beginDraggingSession(with: [item], event: event, source: self)
+    }
+
+    override func mouseUp(with event: NSEvent) {
+        if !didStartDrag && event.clickCount == 2 {
+            NSWorkspace.shared.open(fileURL)
+        }
+    }
+
+    func draggingSession(_ session: NSDraggingSession, sourceOperationMaskFor context: NSDraggingContext) -> NSDragOperation {
+        context == .outsideApplication ? [.copy, .move, .link] : .copy
     }
 }
 
-class NotchWidgetWindow: NSWindow {
+// MARK: - Non-Activating Top Notch Panel (Responds on First Click, Never Steals App Focus)
+class NotchWidgetWindow: NSPanel {
     override var canBecomeKey: Bool { false }
     override var canBecomeMain: Bool { false }
 }
 
+// MARK: - BoringNotch-Inspired Themed Notch View
 class NotchWidgetView: NSView {
     let widgetKey = "notch"
-    private enum State { case collapsed, expanded }
-    private var state: State = .collapsed
 
-    private let collapsedW: CGFloat = 210, collapsedH: CGFloat = 34
-    private let expandedW: CGFloat = 400, expandedH: CGFloat = 130
+    private enum NotchState {
+        case idle          // Exact physical notch size (invisible blend when no music)
+        case liveActivity  // Physical notch + Left Album Art & Right Live Equalizer wings
+        case sneak         // Brief track-change banner peek
+        case open          // Full expanded CustomER-themed panel (Home & Shelf tabs)
+    }
 
-    private let container = NSView()
-    private let eqView = NotchEqualizerView()
+    private enum NotchTab { case home, shelf }
+
+    private var state: NotchState = .idle
+    private var activeTab: NotchTab = .home
+    private var isPinned = false
+    private var isDraggingFileOver = false
+    private var geometry = NotchGeometry.current()
+
+    // Fixed max canvas size — we morph layers inside without resizing NSWindow (silky 120Hz!)
+    static let canvasWidth: CGFloat = 620
+    static let canvasHeight: CGFloat = 220
+
+    private let openWidth: CGFloat = 570
+    private let openHeight: CGFloat = 196
+
+    // CoreAnimation notch silhouette layers
+    private let shapeLayer = CAShapeLayer()
+    private let strokeLayer = CAShapeLayer()
+    private let cameraCapLayer = CAShapeLayer()
+    private let contentMaskLayer = CAShapeLayer()
+    private let contentHost = NSView()
+
+    // Compact Live-Activity / Sneak views (flanking physical notch)
+    private let compactArtView = NSImageView()
+    private let compactEqView = NotchEqualizerView()
+    private let sneakLabel = NSTextField()
+
+    // Expanded header (flanking physical camera cap)
+    private let headerContainer = NSView()
+    private let homeTabBtn = NSButton()
+    private let shelfTabBtn = NSButton()
+    private let batteryBadge = NSTextField()
+    private let pinBtn = NSButton()
+    private let themeBtn = NSButton()
+
+    // Tab 1: Home (Left: Media Player, Right: Tasks & Today)
+    private let homeContainer = NSView()
+    private let mediaCard = NSView()
     private let artView = NSImageView()
+    private let playerSourceBadge = NSTextField()
     private let trackLabel = NSTextField()
     private let artistLabel = NSTextField()
-    private let prevBtn = NSButton(), playBtn = NSButton(), nextBtn = NSButton()
     private let progressBar = NotchProgressView()
+    private let currTimeLabel = NSTextField()
+    private let durTimeLabel = NSTextField()
+    private let prevBtn = NSButton()
+    private let playBtn = NSButton()
+    private let nextBtn = NSButton()
+    private let openEqView = NotchEqualizerView()
     private let offlineLabel = NSTextField()
 
-    private var localTickTimer: Timer?
+    private let glanceCard = NSView()
+    private let glanceHeaderLabel = NSTextField()
+    private let glanceDateLabel = NSTextField()
+    private let glanceTasksContainer = NSView()
+    private let glanceEventsLabel = NSTextField()
+
+    // Tab 2: Shelf (Drag & Drop File Staging + AirDrop)
+    private let shelfContainer = NSView()
+    private let shelfDropBox = NSView()
+    private let shelfEmptyLabel = NSTextField()
+    private let shelfScroll = NSScrollView()
+    private let shelfContent = NSView()
+    private let airDropBtn = NSButton()
+    private let clearShelfBtn = NSButton()
+    private var shelfURLs: [URL] = []
+
+    // Media & hover state
+    private enum MediaSource { case none, spotify, appleMusic }
+    private var mediaSource: MediaSource = .none
+    private var isPlaying = false
+    private var currentTrack = ""
+    private var currentArtist = ""
+    private var currentArtUrl = ""
     private var currentPosition: Double = 0
     private var currentDuration: Double = 1
-    private var currentArtUrl = ""
-    private var isPlaying = false
-    private var lastTrack = ""
-    private var isOffline = true
+    private var artTask: URLSessionDataTask?
 
-    private var dragStartX: CGFloat = 0
-    private var initialWinOrigin: NSPoint = .zero
-    private var dragActive = false
+    private var localTickTimer: Timer?
+    private var resyncCounter = 0
+    private var hoverOpenWorkItem: DispatchWorkItem?
+    private var hoverCloseWorkItem: DispatchWorkItem?
+    private var sneakDismissWorkItem: DispatchWorkItem?
+    private var currentTrackingArea: NSTrackingArea?
+    private var currentNotchRect: NSRect = .zero
+    private var powerRunLoopSource: CFRunLoopSource?
 
     override init(frame: NSRect) {
         super.init(frame: frame)
         build()
         setupObservers()
-        checkSpotify()
+        refreshMediaState()
+        updateBatteryBadge()
+        refreshGlancePanel()
+        applyState(.idle, animated: false)
     }
     required init?(coder: NSCoder) { fatalError() }
 
     deinit {
         localTickTimer?.invalidate()
+        artTask?.cancel()
+        hoverOpenWorkItem?.cancel()
+        hoverCloseWorkItem?.cancel()
+        sneakDismissWorkItem?.cancel()
+        if let src = powerRunLoopSource {
+            CFRunLoopRemoveSource(CFRunLoopGetMain(), src, .defaultMode)
+        }
+        NotificationCenter.default.removeObserver(self)
         DistributedNotificationCenter.default().removeObserver(self)
         NSWorkspace.shared.notificationCenter.removeObserver(self)
     }
 
+    // MARK: - Build View Hierarchy
     private func build() {
-        wantsLayer = true; layer?.backgroundColor = NSColor.clear.cgColor
+        wantsLayer = true
+        layer?.backgroundColor = NSColor.clear.cgColor
+        registerForDraggedTypes([.fileURL])
 
-        container.wantsLayer = true; container.layer?.backgroundColor = NSColor.black.cgColor
-        container.layer?.borderWidth = 0.5; container.layer?.borderColor = NSColor.white.withAlphaComponent(0.10).cgColor
-        addSubview(container)
+        shapeLayer.fillColor = NSColor.black.cgColor
+        layer?.addSublayer(shapeLayer)
 
-        container.addSubview(eqView)
+        strokeLayer.fillColor = NSColor.clear.cgColor
+        strokeLayer.lineWidth = 1.0
+        layer?.addSublayer(strokeLayer)
 
-        artView.wantsLayer = true; artView.layer?.cornerRadius = 10; artView.layer?.masksToBounds = true
-        artView.imageScaling = .scaleAxesIndependently; container.addSubview(artView)
+        contentHost.wantsLayer = true
+        contentHost.layer?.backgroundColor = NSColor.clear.cgColor
+        contentHost.layer?.mask = contentMaskLayer
+        addSubview(contentHost)
 
-        trackLabel.font = dynamicFont(size: 14, weight: .bold); trackLabel.textColor = .white
-        trackLabel.isEditable = false; trackLabel.isBordered = false; trackLabel.backgroundColor = .clear; trackLabel.lineBreakMode = .byTruncatingTail
-        container.addSubview(trackLabel)
+        // Subtle black camera island cap over the physical webcam cutout when expanded in light themes
+        cameraCapLayer.fillColor = NSColor.black.cgColor
+        contentHost.layer?.addSublayer(cameraCapLayer)
 
-        artistLabel.font = dynamicFont(size: 11, weight: .medium); artistLabel.textColor = NSColor.white.withAlphaComponent(0.55)
-        artistLabel.isEditable = false; artistLabel.isBordered = false; artistLabel.backgroundColor = .clear; artistLabel.lineBreakMode = .byTruncatingTail
-        container.addSubview(artistLabel)
+        buildCompactWings()
+        buildExpandedHeader()
+        buildHomeTab()
+        buildShelfTab()
+        applyThemeColors()
+    }
 
-        offlineLabel.stringValue = "Spotify Offline"; offlineLabel.font = dynamicFont(size: 13, weight: .bold)
-        offlineLabel.textColor = NSColor.white.withAlphaComponent(0.4); offlineLabel.alignment = .center
+    private func buildCompactWings() {
+        compactArtView.wantsLayer = true
+        compactArtView.layer?.cornerRadius = 4
+        compactArtView.layer?.masksToBounds = true
+        compactArtView.imageScaling = .scaleAxesIndependently
+        contentHost.addSubview(compactArtView)
+
+        compactEqView.barColor = kAccent
+        contentHost.addSubview(compactEqView)
+
+        sneakLabel.font = dynamicFont(size: 10.5, weight: .bold)
+        sneakLabel.textColor = .white
+        sneakLabel.alignment = .center
+        sneakLabel.lineBreakMode = .byTruncatingTail
+        sneakLabel.isEditable = false; sneakLabel.isBordered = false; sneakLabel.backgroundColor = .clear
+        contentHost.addSubview(sneakLabel)
+    }
+
+    private func buildExpandedHeader() {
+        contentHost.addSubview(headerContainer)
+
+        setupTabBtn(homeTabBtn, title: "HOME", action: #selector(selectHomeTab))
+        setupTabBtn(shelfTabBtn, title: "SHELF", action: #selector(selectShelfTab))
+
+        let batCell = CenteredTextFieldCell(textCell: "")
+        batCell.alignment = .center
+        batCell.font = dynamicFont(size: 9.5, weight: .bold)
+        batteryBadge.cell = batCell
+        batteryBadge.isEditable = false; batteryBadge.isBordered = false
+        batteryBadge.drawsBackground = false; batteryBadge.backgroundColor = .clear
+        batteryBadge.wantsLayer = true
+        headerContainer.addSubview(batteryBadge)
+
+        pinBtn.title = "PIN"
+        pinBtn.font = dynamicFont(size: 9, weight: .bold)
+        pinBtn.isBordered = false; pinBtn.wantsLayer = true
+        pinBtn.target = self; pinBtn.action = #selector(togglePin)
+        headerContainer.addSubview(pinBtn)
+
+        themeBtn.title = "THEME"
+        themeBtn.font = dynamicFont(size: 9, weight: .bold)
+        themeBtn.isBordered = false; themeBtn.wantsLayer = true
+        themeBtn.target = self; themeBtn.action = #selector(cycleThemePreset)
+        headerContainer.addSubview(themeBtn)
+    }
+
+    private func setupTabBtn(_ btn: NSButton, title: String, action: Selector) {
+        btn.title = title
+        btn.font = dynamicFont(size: 9.5, weight: .bold)
+        btn.isBordered = false; btn.wantsLayer = true
+        btn.target = self; btn.action = action
+        headerContainer.addSubview(btn)
+    }
+
+    private func buildHomeTab() {
+        contentHost.addSubview(homeContainer)
+
+        // Left: Media Card
+        mediaCard.wantsLayer = true
+        homeContainer.addSubview(mediaCard)
+
+        artView.wantsLayer = true; artView.layer?.masksToBounds = true
+        artView.imageScaling = .scaleAxesIndependently
+        mediaCard.addSubview(artView)
+
+        playerSourceBadge.font = dynamicFont(size: 8.5, weight: .bold)
+        playerSourceBadge.isEditable = false; playerSourceBadge.isBordered = false; playerSourceBadge.backgroundColor = .clear
+        mediaCard.addSubview(playerSourceBadge)
+
+        trackLabel.font = dynamicFont(size: 13, weight: .bold)
+        trackLabel.lineBreakMode = .byTruncatingTail
+        trackLabel.isEditable = false; trackLabel.isBordered = false; trackLabel.backgroundColor = .clear
+        mediaCard.addSubview(trackLabel)
+
+        artistLabel.font = dynamicFont(size: 10.5, weight: .medium)
+        artistLabel.lineBreakMode = .byTruncatingTail
+        artistLabel.isEditable = false; artistLabel.isBordered = false; artistLabel.backgroundColor = .clear
+        mediaCard.addSubview(artistLabel)
+
+        progressBar.wantsLayer = true
+        progressBar.onSeek = { [weak self] frac in self?.seekTo(fraction: frac) }
+        mediaCard.addSubview(progressBar)
+
+        currTimeLabel.font = dynamicFont(size: 9, weight: .bold)
+        currTimeLabel.isEditable = false; currTimeLabel.isBordered = false; currTimeLabel.backgroundColor = .clear
+        mediaCard.addSubview(currTimeLabel)
+
+        durTimeLabel.font = dynamicFont(size: 9, weight: .bold); durTimeLabel.alignment = .right
+        durTimeLabel.isEditable = false; durTimeLabel.isBordered = false; durTimeLabel.backgroundColor = .clear
+        mediaCard.addSubview(durTimeLabel)
+
+        setupMediaBtn(prevBtn, title: "⏮", action: #selector(onPrev))
+        setupMediaBtn(playBtn, title: "▶", action: #selector(onPlayPause))
+        setupMediaBtn(nextBtn, title: "⏭", action: #selector(onNext))
+
+        mediaCard.addSubview(openEqView)
+
+        offlineLabel.stringValue = "No Media Playing\nPlay Spotify or Apple Music"
+        offlineLabel.font = dynamicFont(size: 11, weight: .bold); offlineLabel.alignment = .center
+        offlineLabel.maximumNumberOfLines = 2
         offlineLabel.isEditable = false; offlineLabel.isBordered = false; offlineLabel.backgroundColor = .clear
-        container.addSubview(offlineLabel)
+        mediaCard.addSubview(offlineLabel)
 
-        setupControlBtn(prevBtn, title: "⏮", action: #selector(onPrev))
-        setupControlBtn(playBtn, title: "▶", action: #selector(onPlayPause))
-        setupControlBtn(nextBtn, title: "⏭", action: #selector(onNext))
+        // Right: CustomER Glance Card (Live Tasks + Calendar Count)
+        glanceCard.wantsLayer = true
+        homeContainer.addSubview(glanceCard)
 
-        progressBar.wantsLayer = true; container.addSubview(progressBar)
-        applyCollapsedLayout()
+        glanceHeaderLabel.stringValue = "TASKS"
+        glanceHeaderLabel.font = dynamicFont(size: 9.5, weight: .bold)
+        glanceHeaderLabel.isEditable = false; glanceHeaderLabel.isBordered = false; glanceHeaderLabel.backgroundColor = .clear
+        glanceCard.addSubview(glanceHeaderLabel)
+
+        glanceDateLabel.font = dynamicFont(size: 9, weight: .bold); glanceDateLabel.alignment = .right
+        glanceDateLabel.isEditable = false; glanceDateLabel.isBordered = false; glanceDateLabel.backgroundColor = .clear
+        glanceCard.addSubview(glanceDateLabel)
+
+        glanceCard.addSubview(glanceTasksContainer)
+
+        glanceEventsLabel.font = dynamicFont(size: 9, weight: .bold)
+        glanceEventsLabel.isEditable = false; glanceEventsLabel.isBordered = false; glanceEventsLabel.backgroundColor = .clear
+        glanceCard.addSubview(glanceEventsLabel)
     }
 
-    private func setupControlBtn(_ btn: NSButton, title: String, action: Selector) {
-        btn.title = title; btn.font = dynamicFont(size: 12, weight: .bold); btn.isBordered = false; btn.wantsLayer = true
-        btn.layer?.cornerRadius = 8; btn.layer?.backgroundColor = NSColor.white.withAlphaComponent(0.10).cgColor
-        btn.contentTintColor = .white; btn.target = self; btn.action = action; container.addSubview(btn)
+    private func setupMediaBtn(_ btn: NSButton, title: String, action: Selector) {
+        btn.title = title
+        btn.font = dynamicFont(size: 11.5, weight: .bold)
+        btn.isBordered = false; btn.wantsLayer = true
+        btn.target = self; btn.action = action
+        mediaCard.addSubview(btn)
     }
 
-    private func applyCollapsedLayout() {
-        let w = collapsedW, h = collapsedH
-        container.frame = NSRect(x: (bounds.width - w) / 2, y: bounds.height - h, width: w, height: h)
-        container.layer?.cornerRadius = 14.0
-        eqView.isHidden = false; eqView.frame = NSRect(x: (w - 40) / 2, y: (h - 16) / 2, width: 40, height: 16)
-        artView.isHidden = true; trackLabel.isHidden = true; artistLabel.isHidden = true
-        prevBtn.isHidden = true; playBtn.isHidden = true; nextBtn.isHidden = true
-        progressBar.isHidden = true; offlineLabel.isHidden = true
+    private func buildShelfTab() {
+        contentHost.addSubview(shelfContainer)
+
+        shelfDropBox.wantsLayer = true
+        shelfContainer.addSubview(shelfDropBox)
+
+        shelfEmptyLabel.stringValue = "DROP FILES HERE TO STAGE OR AIRDROP\nDrag files out anytime into any app"
+        shelfEmptyLabel.font = dynamicFont(size: 10.5, weight: .bold)
+        shelfEmptyLabel.alignment = .center
+        shelfEmptyLabel.maximumNumberOfLines = 2
+        shelfEmptyLabel.isEditable = false; shelfEmptyLabel.isBordered = false; shelfEmptyLabel.backgroundColor = .clear
+        shelfDropBox.addSubview(shelfEmptyLabel)
+
+        shelfScroll.hasHorizontalScroller = true
+        shelfScroll.autohidesScrollers = true
+        shelfScroll.drawsBackground = false
+        shelfScroll.documentView = shelfContent
+        shelfDropBox.addSubview(shelfScroll)
+
+        airDropBtn.title = "AirDrop All"
+        airDropBtn.font = dynamicFont(size: 10, weight: .bold)
+        airDropBtn.isBordered = false; airDropBtn.wantsLayer = true
+        airDropBtn.target = self; airDropBtn.action = #selector(airDropShelvedFiles)
+        shelfContainer.addSubview(airDropBtn)
+
+        clearShelfBtn.title = "Clear Shelf"
+        clearShelfBtn.font = dynamicFont(size: 10, weight: .bold)
+        clearShelfBtn.isBordered = false; clearShelfBtn.wantsLayer = true
+        clearShelfBtn.target = self; clearShelfBtn.action = #selector(clearShelf)
+        shelfContainer.addSubview(clearShelfBtn)
     }
 
-    private func applyExpandedLayout() {
-        let w = expandedW, h = expandedH
-        container.frame = NSRect(x: (bounds.width - w) / 2, y: bounds.height - h, width: w, height: h)
-        container.layer?.cornerRadius = 24.0
-        eqView.isHidden = true
+    // MARK: - Notch Rect Calculations & Layout
+    private func rectForState(_ targetState: NotchState) -> (rect: NSRect, topR: CGFloat, bottomR: CGFloat) {
+        let midX = bounds.width / 2.0
+        let topY = bounds.height
+        let hw = geometry.hardwareWidth
+        let hh = geometry.hardwareHeight
 
-        if isOffline {
-            artView.isHidden = true; trackLabel.isHidden = true; artistLabel.isHidden = true
-            prevBtn.isHidden = true; playBtn.isHidden = true; nextBtn.isHidden = true; progressBar.isHidden = true
-            offlineLabel.isHidden = false; offlineLabel.frame = NSRect(x: 0, y: (h - 24) / 2, width: w, height: 24)
-            return
+        switch targetState {
+        case .idle:
+            let w = hw + 16 // includes 8px top concave ears flush with hardware notch
+            return (NSRect(x: midX - w / 2, y: topY - hh, width: w, height: hh), 8, 10)
+        case .liveActivity:
+            let w = hw + 86 // hardware notch + left art wing + right eq wing + ears
+            return (NSRect(x: midX - w / 2, y: topY - hh, width: w, height: hh), 9, 12)
+        case .sneak:
+            let w = max(hw + 140, 340)
+            let h = hh + 28
+            return (NSRect(x: midX - w / 2, y: topY - h, width: w, height: h), 12, 16)
+        case .open:
+            return (NSRect(x: midX - openWidth / 2, y: topY - openHeight, width: openWidth, height: openHeight), 16, 22)
+        }
+    }
+
+    private func applyState(_ newState: NotchState, animated: Bool) {
+        state = newState
+        let spec = rectForState(newState)
+        currentNotchRect = spec.rect
+
+        let newPath = NotchGeometry.makeNotchPath(in: spec.rect, topEarRadius: spec.topR, bottomRadius: spec.bottomR)
+
+        // When idle/liveActivity/sneak: stay sleek black around physical camera cutout with themed rim.
+        // When open: morph smoothly into the active CustomER theme background!
+        let targetFill: CGColor = (newState == .open) ? kBg.cgColor : NSColor.black.cgColor
+        let targetStroke: CGColor = (newState == .open)
+            ? kBorder.cgColor
+            : (newState == .idle ? NSColor.clear.cgColor : kAccent.withAlphaComponent(0.75).cgColor)
+
+        if animated {
+            let pathAnim = CASpringAnimation(keyPath: "path")
+            pathAnim.fromValue = shapeLayer.presentation()?.path ?? shapeLayer.path
+            pathAnim.toValue = newPath
+            pathAnim.damping = 24
+            pathAnim.stiffness = 340
+            pathAnim.mass = 0.85
+            pathAnim.duration = pathAnim.settlingDuration
+
+            shapeLayer.add(pathAnim, forKey: "notchPathMorph")
+            strokeLayer.add(pathAnim, forKey: "notchStrokeMorph")
+            contentMaskLayer.add(pathAnim, forKey: "notchMaskMorph")
+
+            let fillAnim = CABasicAnimation(keyPath: "fillColor")
+            fillAnim.fromValue = shapeLayer.presentation()?.fillColor ?? shapeLayer.fillColor
+            fillAnim.toValue = targetFill
+            fillAnim.duration = 0.22
+            shapeLayer.add(fillAnim, forKey: "notchFill")
         }
 
-        offlineLabel.isHidden = true
-        let artSize: CGFloat = 72, margin: CGFloat = 18
-        artView.isHidden = false; artView.frame = NSRect(x: margin, y: (h - artSize) / 2, width: artSize, height: artSize)
-        let textX = artSize + margin + 12, textW = w - textX - margin
-        trackLabel.isHidden = false; trackLabel.frame = NSRect(x: textX, y: h - 58, width: textW, height: 22)
-        artistLabel.isHidden = false; artistLabel.frame = NSRect(x: textX, y: h - 80, width: textW, height: 16)
-        progressBar.isHidden = false; progressBar.frame = NSRect(x: textX, y: 52, width: textW, height: 4)
-        prevBtn.isHidden = false; playBtn.isHidden = false; nextBtn.isHidden = false
-        prevBtn.frame = NSRect(x: textX, y: 16, width: 36, height: 28)
-        playBtn.frame = NSRect(x: textX + 44, y: 16, width: 36, height: 28)
-        nextBtn.frame = NSRect(x: textX + 88, y: 16, width: 36, height: 28)
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        shapeLayer.path = newPath
+        shapeLayer.fillColor = targetFill
+        strokeLayer.path = newPath
+        strokeLayer.strokeColor = targetStroke
+        strokeLayer.lineWidth = (newState == .open) ? max(1.0, kBorderWidth) : 1.0
+        contentMaskLayer.path = newPath
+
+        // Show subtle black hardware camera cap only when expanded on a light/colored theme
+        let capW = geometry.hardwareWidth + 12
+        let capH = geometry.hardwareHeight
+        let capRect = NSRect(x: bounds.width / 2 - capW / 2, y: bounds.height - capH, width: capW, height: capH)
+        cameraCapLayer.path = NotchGeometry.makeNotchPath(in: capRect, topEarRadius: 7, bottomRadius: 10)
+        cameraCapLayer.isHidden = (newState != .open || !geometry.hasPhysicalNotch)
+        CATransaction.commit()
+
+        layoutSubviewsForCurrentState()
+        updateTrackingRegion()
+
+        let showWings = (newState == .liveActivity || newState == .sneak) && mediaSource != .none
+        let showSneak = (newState == .sneak)
+        let showOpen  = (newState == .open)
+
+        NSAnimationContext.runAnimationGroup { ctx in
+            ctx.duration = animated ? 0.16 : 0.0
+            compactArtView.animator().alphaValue = showWings ? 1 : 0
+            compactEqView.animator().alphaValue  = showWings ? 1 : 0
+            sneakLabel.animator().alphaValue     = showSneak ? 1 : 0
+            headerContainer.animator().alphaValue = showOpen ? 1 : 0
+            homeContainer.animator().alphaValue   = (showOpen && activeTab == .home) ? 1 : 0
+            shelfContainer.animator().alphaValue  = (showOpen && activeTab == .shelf) ? 1 : 0
+        }
+
+        compactArtView.isHidden  = !showWings
+        compactEqView.isHidden   = !showWings
+        sneakLabel.isHidden      = !showSneak
+        headerContainer.isHidden = !showOpen
+        homeContainer.isHidden   = !(showOpen && activeTab == .home)
+        shelfContainer.isHidden  = !(showOpen && activeTab == .shelf)
+
+        if showOpen {
+            refreshGlancePanel()
+            updateBatteryBadge()
+        }
+    }
+
+    private func layoutSubviewsForCurrentState() {
+        contentHost.frame = bounds
+        let midX = bounds.width / 2.0
+        let topY = bounds.height
+        let hw = geometry.hardwareWidth
+        let hh = geometry.hardwareHeight
+
+        // 1. Compact wings flanking the physical notch cutout
+        let artDim: CGFloat = min(22, hh - 8)
+        let wingY = topY - hh + (hh - artDim) / 2
+        compactArtView.frame = NSRect(x: midX - hw / 2 - artDim - 10, y: wingY, width: artDim, height: artDim)
+        compactEqView.frame  = NSRect(x: midX + hw / 2 + 10, y: topY - hh + (hh - 14) / 2, width: 24, height: 14)
+        sneakLabel.frame     = NSRect(x: midX - 145, y: topY - hh - 22, width: 290, height: 18)
+
+        // 2. Expanded panel bounds (inset past top concave ears)
+        let openSpec = rectForState(.open)
+        let innerX = openSpec.rect.minX + 26
+        let innerW = openSpec.rect.width - 52
+        let openBottom = openSpec.rect.minY
+
+        // Top header bar sits left & right of the physical camera cap
+        let headerH: CGFloat = max(28, hh)
+        headerContainer.frame = NSRect(x: innerX, y: topY - headerH - 4, width: innerW, height: headerH)
+        let hBtnY: CGFloat = (headerH - 20) / 2
+        homeTabBtn.frame  = NSRect(x: 0, y: hBtnY, width: 56, height: 20)
+        shelfTabBtn.frame = NSRect(x: 62, y: hBtnY, width: 78, height: 20)
+
+        themeBtn.frame     = NSRect(x: innerW - 50, y: hBtnY, width: 50, height: 20)
+        pinBtn.frame       = NSRect(x: innerW - 90, y: hBtnY, width: 34, height: 20)
+        batteryBadge.frame = NSRect(x: innerW - 158, y: hBtnY, width: 62, height: 20)
+
+        let bodyY = openBottom + 14
+        let bodyH = openHeight - headerH - 24
+
+        // 3. Home Tab (58% Media Player | 42% Tasks & Glance)
+        homeContainer.frame = NSRect(x: innerX, y: bodyY, width: innerW, height: bodyH)
+        let gap: CGFloat = 10
+        let mediaW = floor(innerW * 0.57)
+        let glanceW = innerW - mediaW - gap
+        mediaCard.frame  = NSRect(x: 0, y: 0, width: mediaW, height: bodyH)
+        glanceCard.frame = NSRect(x: mediaW + gap, y: 0, width: glanceW, height: bodyH)
+
+        // Media card internal layout
+        let artSize: CGFloat = bodyH - 22
+        artView.frame = NSRect(x: 11, y: 11, width: artSize, height: artSize)
+        let infoX = artSize + 21
+        let infoW = mediaW - infoX - 11
+        playerSourceBadge.frame = NSRect(x: infoX, y: bodyH - 23, width: infoW - 30, height: 12)
+        openEqView.frame        = NSRect(x: mediaW - 34, y: bodyH - 23, width: 22, height: 12)
+        trackLabel.frame        = NSRect(x: infoX, y: bodyH - 44, width: infoW, height: 19)
+        artistLabel.frame       = NSRect(x: infoX, y: bodyH - 61, width: infoW, height: 15)
+        progressBar.frame       = NSRect(x: infoX, y: 48, width: infoW, height: 12)
+        currTimeLabel.frame     = NSRect(x: infoX, y: 35, width: infoW / 2, height: 12)
+        durTimeLabel.frame      = NSRect(x: infoX + infoW / 2, y: 35, width: infoW / 2, height: 12)
+        let btnW: CGFloat = 38, btnH: CGFloat = 22, btnGap: CGFloat = 6
+        prevBtn.frame = NSRect(x: infoX, y: 10, width: btnW, height: btnH)
+        playBtn.frame = NSRect(x: infoX + btnW + btnGap, y: 10, width: btnW, height: btnH)
+        nextBtn.frame = NSRect(x: infoX + (btnW + btnGap) * 2, y: 10, width: btnW, height: btnH)
+        offlineLabel.frame = NSRect(x: 10, y: (bodyH - 36) / 2, width: mediaW - 20, height: 36)
+
+        // Glance card internal layout
+        glanceHeaderLabel.frame    = NSRect(x: 10, y: bodyH - 22, width: 80, height: 14)
+        glanceDateLabel.frame      = NSRect(x: 84, y: bodyH - 22, width: glanceW - 94, height: 14)
+        glanceTasksContainer.frame = NSRect(x: 8, y: 24, width: glanceW - 16, height: bodyH - 50)
+        glanceEventsLabel.frame    = NSRect(x: 10, y: 6, width: glanceW - 20, height: 14)
+
+        // 4. Shelf Tab layout
+        shelfContainer.frame = NSRect(x: innerX, y: bodyY, width: innerW, height: bodyH)
+        let actionW: CGFloat = 96
+        shelfDropBox.frame   = NSRect(x: 0, y: 0, width: innerW - actionW - 10, height: bodyH)
+        shelfEmptyLabel.frame = NSRect(x: 10, y: (bodyH - 34) / 2, width: shelfDropBox.bounds.width - 20, height: 34)
+        shelfScroll.frame    = shelfDropBox.bounds.insetBy(dx: 6, dy: 6)
+        airDropBtn.frame     = NSRect(x: innerW - actionW, y: bodyH - 34, width: actionW, height: 28)
+        clearShelfBtn.frame  = NSRect(x: innerW - actionW, y: bodyH - 68, width: actionW, height: 26)
+        layoutShelfItems()
     }
 
     override func layout() {
         super.layout()
-        if state == .collapsed { applyCollapsedLayout() } else { applyExpandedLayout() }
+        applyState(state, animated: false)
     }
+
+    // MARK: - Theme Integration (Live Sync with CustomER ThemeManager)
+    private func applyThemeColors() {
+        let p = ThemeManager.shared.currentPreset
+        let onAccent: NSColor = (p == .glass || p == .childish) ? .white : kSurface
+
+        if state == .open {
+            shapeLayer.fillColor = kBg.cgColor
+            strokeLayer.strokeColor = kBorder.cgColor
+            strokeLayer.lineWidth = max(1.0, kBorderWidth)
+        } else if state != .idle {
+            strokeLayer.strokeColor = kAccent.withAlphaComponent(0.75).cgColor
+        }
+
+        compactEqView.barColor = (p == .minimal) ? kBg : kAccent
+        openEqView.barColor = kAccent
+
+        // Header buttons
+        styleHeaderButton(homeTabBtn, active: activeTab == .home, onAccent: onAccent)
+        styleHeaderButton(shelfTabBtn, active: activeTab == .shelf, onAccent: onAccent)
+        styleHeaderButton(pinBtn, active: isPinned, onAccent: onAccent)
+        styleHeaderButton(themeBtn, active: false, onAccent: onAccent)
+
+        batteryBadge.font = dynamicFont(size: 9.5, weight: .bold)
+        batteryBadge.textColor = kText
+        batteryBadge.layer?.backgroundColor = kSurface.cgColor
+        batteryBadge.layer?.borderWidth = kBorderWidth
+        batteryBadge.layer?.borderColor = kBorder.cgColor
+
+        // Cards
+        for card in [mediaCard, glanceCard, shelfDropBox] {
+            card.layer?.backgroundColor = kSurface.cgColor
+            card.layer?.borderWidth = kBorderWidth
+            card.layer?.borderColor = kBorder.cgColor
+            card.layer?.cornerRadius = kRadius / 2
+        }
+
+        artView.layer?.borderWidth = kBorderWidth
+        artView.layer?.borderColor = kBorder.cgColor
+
+        playerSourceBadge.textColor = kAccent
+        playerSourceBadge.font = dynamicFont(size: 8.5, weight: .bold)
+        trackLabel.textColor = kText
+        trackLabel.font = dynamicFont(size: 13, weight: .bold)
+        artistLabel.textColor = kDim
+        artistLabel.font = dynamicFont(size: 10.5, weight: .medium)
+        currTimeLabel.textColor = kText
+        currTimeLabel.font = dynamicFont(size: 9, weight: .bold)
+        durTimeLabel.textColor = kDim
+        durTimeLabel.font = dynamicFont(size: 9, weight: .bold)
+        offlineLabel.textColor = kDim
+        offlineLabel.font = dynamicFont(size: 11, weight: .bold)
+
+        for btn in [prevBtn, playBtn, nextBtn] {
+            btn.font = dynamicFont(size: 11.5, weight: .bold)
+            btn.layer?.backgroundColor = kAccent.cgColor
+            btn.layer?.borderWidth = kBorderWidth
+            btn.layer?.borderColor = kBorder.cgColor
+            btn.contentTintColor = onAccent
+        }
+
+        glanceHeaderLabel.textColor = kAccent
+        glanceHeaderLabel.font = dynamicFont(size: 9.5, weight: .bold)
+        glanceDateLabel.textColor = kDim
+        glanceDateLabel.font = dynamicFont(size: 9, weight: .bold)
+        glanceEventsLabel.textColor = kDim
+        glanceEventsLabel.font = dynamicFont(size: 9, weight: .bold)
+
+        shelfEmptyLabel.textColor = kDim
+        shelfEmptyLabel.font = dynamicFont(size: 10.5, weight: .bold)
+
+        airDropBtn.font = dynamicFont(size: 10, weight: .bold)
+        airDropBtn.layer?.backgroundColor = kAddBg.cgColor
+        airDropBtn.layer?.borderWidth = kBorderWidth
+        airDropBtn.layer?.borderColor = kBorder.cgColor
+        airDropBtn.contentTintColor = onAccent
+
+        clearShelfBtn.font = dynamicFont(size: 10, weight: .bold)
+        clearShelfBtn.layer?.backgroundColor = kSurface.cgColor
+        clearShelfBtn.layer?.borderWidth = kBorderWidth
+        clearShelfBtn.layer?.borderColor = kBorder.cgColor
+        clearShelfBtn.contentTintColor = kText
+
+        progressBar.needsDisplay = true
+        refreshGlancePanel()
+        rebuildShelfCards()
+    }
+
+    private func styleHeaderButton(_ btn: NSButton, active: Bool, onAccent: NSColor) {
+        btn.font = dynamicFont(size: 9.5, weight: .bold)
+        btn.layer?.borderWidth = kBorderWidth
+        btn.layer?.borderColor = kBorder.cgColor
+        btn.layer?.backgroundColor = active ? kAccent.cgColor : kSurface.cgColor
+        btn.contentTintColor = active ? onAccent : kText
+    }
+
+    // MARK: - Hit Testing & Hover Mechanics (Click-Through Outside Active Notch)
+    override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
 
     override func hitTest(_ point: NSPoint) -> NSView? {
         let local = convert(point, from: nil)
-        let containerPoint = convert(local, to: container)
-        return container.bounds.contains(containerPoint) ? super.hitTest(point) : nil
+        guard currentNotchRect.contains(local) else { return nil }
+        return super.hitTest(point)
     }
 
+    private func updateTrackingRegion() {
+        if let existing = currentTrackingArea {
+            removeTrackingArea(existing)
+        }
+        // Slightly generous hit strip at the very top edge so moving cursor to top-center opens effortlessly
+        let trackRect = currentNotchRect.insetBy(dx: -6, dy: 0)
+        let area = NSTrackingArea(rect: trackRect, options: [.mouseEnteredAndExited, .activeAlways], owner: self, userInfo: nil)
+        currentTrackingArea = area
+        addTrackingArea(area)
+    }
+
+    override func mouseEntered(with event: NSEvent) {
+        hoverCloseWorkItem?.cancel()
+        guard state != .open else { return }
+        hoverOpenWorkItem?.cancel()
+        let item = DispatchWorkItem { [weak self] in
+            guard let self = self else { return }
+            self.sneakDismissWorkItem?.cancel()
+            self.applyState(.open, animated: true)
+        }
+        hoverOpenWorkItem = item
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.14, execute: item)
+    }
+
+    override func mouseExited(with event: NSEvent) {
+        hoverOpenWorkItem?.cancel()
+        guard state == .open, !isPinned, !isDraggingFileOver else { return }
+        scheduleCollapse()
+    }
+
+    private func scheduleCollapse(delay: TimeInterval = 0.35) {
+        hoverCloseWorkItem?.cancel()
+        let item = DispatchWorkItem { [weak self] in
+            guard let self = self, !self.isPinned, !self.isDraggingFileOver else { return }
+            let collapsedTarget: NotchState = (self.mediaSource != .none && self.isPlaying) ? .liveActivity : .idle
+            self.applyState(collapsedTarget, animated: true)
+        }
+        hoverCloseWorkItem = item
+        DispatchQueue.main.asyncAfter(deadline: .now() + delay, execute: item)
+    }
+
+    override func mouseDown(with event: NSEvent) {
+        let pt = convert(event.locationInWindow, from: nil)
+        let hit = super.hitTest(pt)
+        if hit is NSButton || hit is NotchProgressView || hit is ShelfItemView {
+            super.mouseDown(with: event)
+            return
+        }
+        if state != .open {
+            applyState(.open, animated: true)
+        } else if !isPinned {
+            let target: NotchState = (mediaSource != .none && isPlaying) ? .liveActivity : .idle
+            applyState(target, animated: true)
+        }
+    }
+
+    // MARK: - Drag-and-Drop Shelf (BoringNotch Style)
+    override func draggingEntered(_ sender: NSDraggingInfo) -> NSDragOperation {
+        guard sender.draggingPasteboard.canReadObject(forClasses: [NSURL.self], options: [.urlReadingFileURLsOnly: true]) else {
+            return []
+        }
+        isDraggingFileOver = true
+        hoverCloseWorkItem?.cancel()
+        activeTab = .shelf
+        applyThemeColors()
+        if state != .open {
+            applyState(.open, animated: true)
+        } else {
+            homeContainer.isHidden = true
+            shelfContainer.isHidden = false
+            shelfContainer.alphaValue = 1
+        }
+        shelfDropBox.layer?.borderColor = kAccent.cgColor
+        shelfDropBox.layer?.borderWidth = 2.0
+        return .copy
+    }
+
+    override func draggingExited(_ sender: NSDraggingInfo?) {
+        isDraggingFileOver = false
+        shelfDropBox.layer?.borderColor = kBorder.cgColor
+        shelfDropBox.layer?.borderWidth = kBorderWidth
+        scheduleCollapse(delay: 0.5)
+    }
+
+    override func performDragOperation(_ sender: NSDraggingInfo) -> Bool {
+        isDraggingFileOver = false
+        shelfDropBox.layer?.borderColor = kBorder.cgColor
+        shelfDropBox.layer?.borderWidth = kBorderWidth
+        guard let urls = sender.draggingPasteboard.readObjects(forClasses: [NSURL.self], options: [.urlReadingFileURLsOnly: true]) as? [URL],
+              !urls.isEmpty else { return false }
+
+        for u in urls where !shelfURLs.contains(u) {
+            shelfURLs.append(u)
+        }
+        shelfTabBtn.title = shelfURLs.isEmpty ? "SHELF" : "SHELF (\(shelfURLs.count))"
+        rebuildShelfCards()
+        return true
+    }
+
+    private func rebuildShelfCards() {
+        shelfContent.subviews.forEach { $0.removeFromSuperview() }
+        shelfEmptyLabel.isHidden = !shelfURLs.isEmpty
+        shelfScroll.isHidden = shelfURLs.isEmpty
+        airDropBtn.isEnabled = !shelfURLs.isEmpty
+        clearShelfBtn.isEnabled = !shelfURLs.isEmpty
+        shelfTabBtn.title = shelfURLs.isEmpty ? "SHELF" : "SHELF (\(shelfURLs.count))"
+
+        for u in shelfURLs {
+            let card = ShelfItemView(url: u)
+            card.onRemove = { [weak self] url in
+                self?.shelfURLs.removeAll { $0 == url }
+                self?.rebuildShelfCards()
+            }
+            shelfContent.addSubview(card)
+        }
+        layoutShelfItems()
+    }
+
+    private func layoutShelfItems() {
+        let cardW: CGFloat = 78
+        let cardH = max(72, shelfScroll.bounds.height - 6)
+        let gap: CGFloat = 8
+        let totalW = max(shelfScroll.bounds.width, CGFloat(shelfURLs.count) * (cardW + gap) + gap)
+        shelfContent.frame = NSRect(x: 0, y: 0, width: totalW, height: shelfScroll.bounds.height)
+        for (idx, v) in shelfContent.subviews.enumerated() {
+            v.frame = NSRect(x: gap + CGFloat(idx) * (cardW + gap), y: 3, width: cardW, height: cardH)
+        }
+    }
+
+    @objc private func airDropShelvedFiles() {
+        guard !shelfURLs.isEmpty,
+              let service = NSSharingService(named: .sendViaAirDrop) else { return }
+        service.perform(withItems: shelfURLs)
+    }
+
+    @objc private func clearShelf() {
+        shelfURLs.removeAll()
+        rebuildShelfCards()
+    }
+
+    // MARK: - Header Actions
+    @objc private func selectHomeTab() {
+        activeTab = .home
+        applyThemeColors()
+        applyState(.open, animated: false)
+    }
+
+    @objc private func selectShelfTab() {
+        activeTab = .shelf
+        applyThemeColors()
+        applyState(.open, animated: false)
+    }
+
+    @objc private func togglePin() {
+        isPinned.toggle()
+        pinBtn.title = isPinned ? "PIN*" : "PIN"
+        applyThemeColors()
+    }
+
+    @objc private func cycleThemePreset() {
+        ThemeManager.shared.cyclePreset()
+    }
+
+    // MARK: - Glance Panel (Live Tasks & Calendar Integration)
+    private func refreshGlancePanel() {
+        let now = Date()
+        glanceDateLabel.stringValue = AppDateFormatters.timeHHmm.string(from: now)
+
+        glanceTasksContainer.subviews.forEach { $0.removeFromSuperview() }
+        let activeTasks = ReminderStore.shared.items
+            .filter { !$0.isCompleted }
+            .sorted { a, b in (a.isStarred != b.isStarred) ? a.isStarred : (a.createdAt > b.createdAt) }
+
+        let visibleTasks = Array(activeTasks.prefix(3))
+        let w = max(120, glanceTasksContainer.bounds.width)
+        let h = glanceTasksContainer.bounds.height
+
+        if visibleTasks.isEmpty {
+            let empty = NSTextField(labelWithString: "All tasks done!")
+            empty.font = dynamicFont(size: 10, weight: .medium); empty.textColor = kDim; empty.alignment = .center
+            empty.frame = NSRect(x: 0, y: (h - 16) / 2, width: w, height: 16)
+            glanceTasksContainer.addSubview(empty)
+        } else {
+            let rowH: CGFloat = 22
+            for (i, task) in visibleTasks.enumerated() {
+                let y = h - CGFloat(i + 1) * (rowH + 3)
+                let btn = NSButton(frame: NSRect(x: 0, y: y, width: w, height: rowH))
+                btn.isBordered = false; btn.alignment = .left
+                let prefix = task.isStarred ? "★ " : "☐ "
+                btn.attributedTitle = NSAttributedString(string: prefix + task.title, attributes: [
+                    .font: dynamicFont(size: 10.5, weight: task.isStarred ? .bold : .medium),
+                    .foregroundColor: task.isStarred ? (NSColor(hex: "#F59E0B") ?? kAccent) : kText
+                ])
+                btn.lineBreakMode = .byTruncatingTail
+                btn.target = self; btn.action = #selector(completeTaskFromNotch(_:))
+                btn.identifier = NSUserInterfaceItemIdentifier(task.id.uuidString)
+                glanceTasksContainer.addSubview(btn)
+            }
+        }
+
+        let todayKey = HabitStore.currentCycleKey()
+        let todayEvents = CalendarEventStore.shared.events(for: todayKey)
+        if let firstEv = todayEvents.first {
+            glanceEventsLabel.stringValue = "• \(firstEv.title)" + (todayEvents.count > 1 ? " (+\(todayEvents.count - 1))" : "")
+        } else {
+            glanceEventsLabel.stringValue = "\(activeTasks.count) active • \(AppDateFormatters.fullDate.string(from: now).prefix(14))"
+        }
+    }
+
+    @objc private func completeTaskFromNotch(_ sender: NSButton) {
+        guard let raw = sender.identifier?.rawValue, let id = UUID(uuidString: raw) else { return }
+        ReminderStore.shared.toggle(id: id)
+        NotificationCenter.default.post(name: NSNotification.Name("com.user.tututodo.reload"), object: nil)
+        refreshGlancePanel()
+    }
+
+    // MARK: - Live Battery Badge (Event-Driven IOKit)
+    private func updateBatteryBadge() {
+        let snapshot = IOPSCopyPowerSourcesInfo().takeRetainedValue()
+        let sources = IOPSCopyPowerSourcesList(snapshot).takeRetainedValue() as [CFTypeRef]
+        var pct = 100
+        var charging = false
+        for src in sources {
+            if let info = IOPSGetPowerSourceDescription(snapshot, src).takeUnretainedValue() as? [String: Any] {
+                pct = info[kIOPSCurrentCapacityKey] as? Int ?? 100
+                charging = (info[kIOPSPowerSourceStateKey] as? String) == kIOPSACPowerValue
+                break
+            }
+        }
+        batteryBadge.stringValue = charging ? "\(pct)% CHG" : "\(pct)%"
+        batteryBadge.layer?.borderColor = charging ? (NSColor(hex: "#10B981") ?? kBorder).cgColor : kBorder.cgColor
+    }
+
+    // MARK: - Event-Driven Media Monitoring (Spotify + Apple Music, Zero Idle Polling)
     private func setupObservers() {
-        DistributedNotificationCenter.default().addObserver(
-            self,
-            selector: #selector(onPlaybackNotification(_:)),
-            name: Notification.Name("com.spotify.client.PlaybackStateChanged"),
-            object: nil
-        )
-        NSWorkspace.shared.notificationCenter.addObserver(
-            self,
-            selector: #selector(onAppTerminated(_:)),
-            name: NSWorkspace.didTerminateApplicationNotification,
-            object: nil
-        )
+        NotificationCenter.default.addObserver(self, selector: #selector(onThemeChanged), name: ThemeManager.notifName, object: nil)
+        DistributedNotificationCenter.default().addObserver(self, selector: #selector(onThemeChanged), name: ThemeManager.notifName, object: nil)
+        NotificationCenter.default.addObserver(self, selector: #selector(onTasksReload), name: NSNotification.Name("com.user.tututodo.reload"), object: nil)
+        NotificationCenter.default.addObserver(self, selector: #selector(onScreenChanged), name: NSApplication.didChangeScreenParametersNotification, object: nil)
+
+        DistributedNotificationCenter.default().addObserver(self, selector: #selector(onSpotifyChanged(_:)), name: Notification.Name("com.spotify.client.PlaybackStateChanged"), object: nil)
+        DistributedNotificationCenter.default().addObserver(self, selector: #selector(onAppleMusicChanged(_:)), name: Notification.Name("com.apple.Music.playerInfo"), object: nil)
+        NSWorkspace.shared.notificationCenter.addObserver(self, selector: #selector(onAppTerminated(_:)), name: NSWorkspace.didTerminateApplicationNotification, object: nil)
+
+        let ctx = Unmanaged.passUnretained(self).toOpaque()
+        if let src = IOPSNotificationCreateRunLoopSource({ ptr in
+            guard let ptr = ptr else { return }
+            let view = Unmanaged<NotchWidgetView>.fromOpaque(ptr).takeUnretainedValue()
+            DispatchQueue.main.async { view.updateBatteryBadge() }
+        }, ctx)?.takeRetainedValue() {
+            CFRunLoopAddSource(CFRunLoopGetMain(), src, .defaultMode)
+            powerRunLoopSource = src
+        }
+    }
+
+    @objc private func onThemeChanged() {
+        DispatchQueue.main.async {
+            self.applyThemeColors()
+            self.needsDisplay = true
+        }
+    }
+
+    @objc private func onTasksReload() {
+        DispatchQueue.main.async { self.refreshGlancePanel() }
+    }
+
+    @objc private func onScreenChanged() {
+        geometry = NotchGeometry.current(for: window?.screen ?? NSScreen.main)
+        repositionWindowToTopCenter()
+        applyState(state, animated: false)
+    }
+
+    func repositionWindowToTopCenter() {
+        guard let w = window else { return }
+        geometry = NotchGeometry.current(for: w.screen ?? NSScreen.main)
+        let sf = geometry.screenFrame
+        let origin = NSPoint(x: sf.midX - Self.canvasWidth / 2, y: sf.maxY - Self.canvasHeight)
+        w.setFrame(NSRect(origin: origin, size: NSSize(width: Self.canvasWidth, height: Self.canvasHeight)), display: true)
     }
 
     @objc private func onAppTerminated(_ notif: Notification) {
-        if let app = notif.userInfo?[NSWorkspace.applicationUserInfoKey] as? NSRunningApplication,
-           app.bundleIdentifier == "com.spotify.client" {
-            DispatchQueue.main.async { self.handleResult("OFFLINE") }
+        guard let app = notif.userInfo?[NSWorkspace.applicationUserInfoKey] as? NSRunningApplication else { return }
+        if (app.bundleIdentifier == "com.spotify.client" && mediaSource == .spotify) ||
+           (app.bundleIdentifier == "com.apple.Music" && mediaSource == .appleMusic) {
+            DispatchQueue.main.async { self.setMediaOffline() }
         }
     }
 
-    @objc private func onPlaybackNotification(_ notif: Notification) {
-        checkSpotify()
+    @objc private func onSpotifyChanged(_ notif: Notification) {
+        refreshSpotify()
     }
 
-    private func updateLocalTicker() {
-        if isPlaying {
-            guard localTickTimer == nil else { return }
-            localTickTimer = Timer.scheduledTimer(withTimeInterval: 1.0, repeats: true) { [weak self] _ in
-                guard let self = self, self.isPlaying else { return }
-                self.currentPosition = min(self.currentPosition + 1.0, self.currentDuration)
-                self.progressBar.progress = self.currentDuration > 0 ? CGFloat(self.currentPosition / self.currentDuration) : 0
-            }
+    @objc private func onAppleMusicChanged(_ notif: Notification) {
+        refreshAppleMusic()
+    }
+
+    private func refreshMediaState() {
+        if !NSRunningApplication.runningApplications(withBundleIdentifier: "com.spotify.client").isEmpty {
+            refreshSpotify()
+        } else if !NSRunningApplication.runningApplications(withBundleIdentifier: "com.apple.Music").isEmpty {
+            refreshAppleMusic()
         } else {
-            localTickTimer?.invalidate()
-            localTickTimer = nil
+            setMediaOffline()
         }
     }
 
-    private func checkSpotify() {
+    private func refreshSpotify() {
         guard !NSRunningApplication.runningApplications(withBundleIdentifier: "com.spotify.client").isEmpty else {
-            DispatchQueue.main.async { self.handleResult("OFFLINE") }
-            return
+            setMediaOffline(); return
         }
         let sc = """
         tell application "Spotify"
@@ -250,102 +1153,188 @@ class NotchWidgetView: NSView {
         """
         DispatchQueue.global(qos: .utility).async { [weak self] in
             let res = runScript(sc)
-            DispatchQueue.main.async { self?.handleResult(res) }
+            DispatchQueue.main.async { self?.handleMediaResult(res, source: .spotify) }
         }
     }
 
-    private func handleResult(_ res: String) {
+    private func refreshAppleMusic() {
+        guard !NSRunningApplication.runningApplications(withBundleIdentifier: "com.apple.Music").isEmpty else {
+            setMediaOffline(); return
+        }
+        let sc = """
+        tell application "Music"
+            if player state is playing or player state is paused then
+                set trackName to name of current track
+                set artistName to artist of current track
+                set pState to (player state is playing)
+                set pPos to player position
+                set pDur to duration of current track
+                return trackName & "|||" & artistName & "||||||" & pState & "|||" & pPos & "|||" & pDur
+            end if
+        end tell
+        return "OFFLINE"
+        """
+        DispatchQueue.global(qos: .utility).async { [weak self] in
+            let res = runScript(sc)
+            DispatchQueue.main.async { self?.handleMediaResult(res, source: .appleMusic) }
+        }
+    }
+
+    private func setMediaOffline() {
+        mediaSource = .none
+        isPlaying = false
+        compactEqView.isPlaying = false
+        openEqView.isPlaying = false
+        updateLocalTicker()
+        setMediaControlsHidden(true)
+        if state == .liveActivity || state == .sneak {
+            applyState(.idle, animated: true)
+        }
+    }
+
+    private func setMediaControlsHidden(_ hidden: Bool) {
+        artView.isHidden = hidden
+        playerSourceBadge.isHidden = hidden
+        trackLabel.isHidden = hidden
+        artistLabel.isHidden = hidden
+        progressBar.isHidden = hidden
+        currTimeLabel.isHidden = hidden
+        durTimeLabel.isHidden = hidden
+        prevBtn.isHidden = hidden
+        playBtn.isHidden = hidden
+        nextBtn.isHidden = hidden
+        openEqView.isHidden = hidden
+        offlineLabel.isHidden = !hidden
+    }
+
+    private func handleMediaResult(_ res: String, source: MediaSource) {
         if res == "OFFLINE" || res.isEmpty {
-            let wasOffline = isOffline
-            isOffline = true; isPlaying = false; eqView.isPlaying = false
-            updateLocalTicker()
-            if state == .expanded && !wasOffline { applyExpandedLayout() }
+            setMediaOffline()
             return
         }
-        isOffline = false
         let p = res.components(separatedBy: "|||")
         guard p.count >= 6 else { return }
 
         let track = p[0], artist = p[1], artUrl = p[2]
         let playing = (p[3] == "true")
+        let trackChanged = (track != currentTrack && !track.isEmpty)
+
+        mediaSource = source
+        currentTrack = track
+        currentArtist = artist
+        isPlaying = playing
         currentPosition = Double(p[4]) ?? 0
         currentDuration = max(1, Double(p[5]) ?? 1)
-        isPlaying = playing
+
+        playerSourceBadge.stringValue = (source == .spotify) ? "SPOTIFY" : "APPLE MUSIC"
+        trackLabel.stringValue = track
+        artistLabel.stringValue = artist
         playBtn.title = playing ? "⏸" : "▶"
-        eqView.isPlaying = playing
+        compactEqView.isPlaying = playing
+        openEqView.isPlaying = playing
+        currTimeLabel.stringValue = fmtTime(currentPosition)
+        durTimeLabel.stringValue = fmtTime(currentDuration)
+        progressBar.progress = CGFloat(currentPosition / currentDuration)
+        setMediaControlsHidden(false)
         updateLocalTicker()
 
-        if track != lastTrack {
-            lastTrack = track; trackLabel.stringValue = track; artistLabel.stringValue = artist
-            if artUrl != currentArtUrl && !artUrl.isEmpty { currentArtUrl = artUrl; loadArt(url: artUrl) }
-            if state == .expanded { applyExpandedLayout() }
+        if !artUrl.isEmpty && artUrl != currentArtUrl {
+            currentArtUrl = artUrl
+            loadArt(urlStr: artUrl)
         }
-        progressBar.progress = CGFloat(currentPosition / currentDuration)
+
+        // Trigger BoringNotch sneak-peek on new track when collapsed!
+        if state != .open {
+            if trackChanged && playing {
+                sneakLabel.stringValue = "\(track) — \(artist)"
+                applyState(.sneak, animated: true)
+                sneakDismissWorkItem?.cancel()
+                let dismiss = DispatchWorkItem { [weak self] in
+                    guard let self = self, self.state == .sneak else { return }
+                    self.applyState(self.isPlaying ? .liveActivity : .idle, animated: true)
+                }
+                sneakDismissWorkItem = dismiss
+                DispatchQueue.main.asyncAfter(deadline: .now() + 2.4, execute: dismiss)
+            } else {
+                let desired: NotchState = playing ? .liveActivity : .idle
+                if state != desired {
+                    applyState(desired, animated: true)
+                }
+            }
+        }
     }
 
-    private func loadArt(url: String) {
-        guard let u = URL(string: url) else { return }
-        URLSession.shared.dataTask(with: u) { [weak self] data, _, _ in
+    private func loadArt(urlStr: String) {
+        artTask?.cancel()
+        guard let url = URL(string: urlStr) else { return }
+        artTask = URLSession.shared.dataTask(with: url) { [weak self] data, _, _ in
             guard let data = data, let img = NSImage(data: data) else { return }
-            DispatchQueue.main.async { self?.artView.image = img }
-        }.resume()
+            DispatchQueue.main.async {
+                self?.artView.image = img
+                self?.compactArtView.image = img
+            }
+        }
+        artTask?.resume()
     }
 
-    private func animateTo(_ newState: State) {
-        guard state != newState else { return }
-        state = newState
-        let isExpanded = (newState == .expanded)
-        let targetW = isExpanded ? expandedW : collapsedW
-        let targetH = isExpanded ? expandedH : collapsedH
-
-        if let w = window, let screen = w.screen ?? NSScreen.main {
-            let newFrame = NSRect(x: w.frame.midX - targetW / 2.0, y: screen.frame.maxY - targetH, width: targetW, height: targetH)
-            NSAnimationContext.runAnimationGroup({ ctx in
-                ctx.duration = 0.28
-                ctx.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
-                w.animator().setFrame(newFrame, display: true)
-                self.layout()
-            }, completionHandler: { [weak self] in
-                if self?.state == .collapsed { self?.applyCollapsedLayout() }
-            })
+    private func updateLocalTicker() {
+        if isPlaying {
+            guard localTickTimer == nil else { return }
+            resyncCounter = 0
+            localTickTimer = Timer.scheduledTimer(withTimeInterval: 1.0, repeats: true) { [weak self] _ in
+                guard let self = self, self.isPlaying else { return }
+                self.currentPosition = min(self.currentPosition + 1.0, self.currentDuration)
+                self.currTimeLabel.stringValue = self.fmtTime(self.currentPosition)
+                self.progressBar.progress = CGFloat(self.currentPosition / self.currentDuration)
+                self.resyncCounter += 1
+                if self.resyncCounter >= 20 {
+                    self.resyncCounter = 0
+                    self.refreshMediaState()
+                }
+            }
+        } else {
+            localTickTimer?.invalidate()
+            localTickTimer = nil
         }
     }
 
-    override func mouseDown(with event: NSEvent) {
-        let pt = convert(event.locationInWindow, from: nil)
-        if hitTest(pt) is NSButton { super.mouseDown(with: event); return }
-        animateTo(state == .collapsed ? .expanded : .collapsed)
-        dragStartX = NSEvent.mouseLocation.x
-        if let w = window { initialWinOrigin = w.frame.origin }
-        dragActive = true
+    private func fmtTime(_ sec: Double) -> String {
+        guard sec > 0 && !sec.isNaN && !sec.isInfinite else { return "0:00" }
+        let t = Int(sec)
+        return String(format: "%d:%02d", t / 60, t % 60)
     }
 
-    override func mouseDragged(with event: NSEvent) {
-        guard dragActive, let w = window else { return }
-        w.setFrameOrigin(NSPoint(x: initialWinOrigin.x + (NSEvent.mouseLocation.x - dragStartX), y: w.frame.origin.y))
-    }
-
-    override func mouseUp(with event: NSEvent) {
-        dragActive = false
-        if let w = window { PositionManager.shared.savePosition(key: widgetKey, origin: w.frame.origin) }
+    private func seekTo(fraction: CGFloat) {
+        let targetSec = Double(fraction) * currentDuration
+        currentPosition = targetSec
+        currTimeLabel.stringValue = fmtTime(targetSec)
+        let appName = (mediaSource == .appleMusic) ? "Music" : "Spotify"
+        DispatchQueue.global(qos: .userInitiated).async {
+            _ = runScript("tell application \"\(appName)\" to set player position to \(targetSec)")
+        }
     }
 
     @objc private func onPrev() {
+        let appName = (mediaSource == .appleMusic) ? "Music" : "Spotify"
         DispatchQueue.global(qos: .userInitiated).async { [weak self] in
-            _ = runScript("tell application \"Spotify\" to previous track")
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { self?.checkSpotify() }
+            _ = runScript("tell application \"\(appName)\" to previous track")
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) { self?.refreshMediaState() }
         }
     }
+
     @objc private func onPlayPause() {
+        let appName = (mediaSource == .appleMusic) ? "Music" : "Spotify"
         DispatchQueue.global(qos: .userInitiated).async { [weak self] in
-            _ = runScript("tell application \"Spotify\" to playpause")
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { self?.checkSpotify() }
+            _ = runScript("tell application \"\(appName)\" to playpause")
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) { self?.refreshMediaState() }
         }
     }
+
     @objc private func onNext() {
+        let appName = (mediaSource == .appleMusic) ? "Music" : "Spotify"
         DispatchQueue.global(qos: .userInitiated).async { [weak self] in
-            _ = runScript("tell application \"Spotify\" to next track")
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { self?.checkSpotify() }
+            _ = runScript("tell application \"\(appName)\" to next track")
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) { self?.refreshMediaState() }
         }
     }
 }

@@ -90,7 +90,9 @@ class CalendarView: BaseWidgetView {
     private let nextBtn     = NSButton()
     private let legendLabel = NSTextField()
     private var dayViews: [NSTextField] = []
+    private var eventDots: [NSView] = []
     private var displayedMonthOffset = 0
+    private var currentRowCount = 6
     private var calendarConfig = CalendarConfig.load()
     private var refreshTimer: Timer?
 
@@ -116,49 +118,64 @@ class CalendarView: BaseWidgetView {
     }
 
     private func build() {
-        titleLabel.font = dynamicFont(size: 13, weight: .bold); titleLabel.textColor = kText
-        titleLabel.isEditable = false; titleLabel.isBordered = false; titleLabel.backgroundColor = .clear
+        let titleCell = CenteredTextFieldCell(textCell: "")
+        titleCell.alignment = .left; titleCell.font = dynamicFont(size: 13, weight: .bold); titleCell.textColor = kText
+        titleLabel.cell = titleCell
+        titleLabel.isEditable = false; titleLabel.isBordered = false; titleLabel.drawsBackground = false; titleLabel.backgroundColor = .clear
         let resetClick = NSClickGestureRecognizer(target: self, action: #selector(jumpToToday))
         titleLabel.addGestureRecognizer(resetClick)
         addSubview(titleLabel)
 
-        for (btn, sym, sel) in [(prevBtn, "‹", #selector(prevMonth)), (nextBtn, "›", #selector(nextMonth))] {
-            btn.title = sym
-            btn.font = dynamicFont(size: 13, weight: .bold)
+        for (btn, sym, sel) in [(prevBtn, "<", #selector(prevMonth)), (nextBtn, ">", #selector(nextMonth))] {
             btn.isBordered = false; btn.wantsLayer = true
+            btn.layer?.cornerRadius = kRadius
             btn.layer?.borderWidth = kBorderWidth; btn.layer?.borderColor = kBorder.cgColor
             btn.layer?.backgroundColor = kSurface.cgColor
-            btn.contentTintColor = kText
+            btn.attributedTitle = NSAttributedString(string: sym, attributes: [
+                .font: dynamicFont(size: 11, weight: .bold),
+                .foregroundColor: kText
+            ])
             btn.target = self; btn.action = sel
             addSubview(btn)
         }
 
         let legendCell = CenteredTextFieldCell(textCell: calendarConfig.legend)
-        legendCell.alignment = .center
-        legendLabel.cell = legendCell
-        legendLabel.font = dynamicFont(size: 8.5, weight: .bold)
-        legendLabel.textColor = kDim; legendLabel.tag = 99
-        legendLabel.isEditable = false; legendLabel.isBordered = false; legendLabel.backgroundColor = .clear
+        legendCell.alignment = .center; legendCell.font = dynamicFont(size: 8.5, weight: .bold); legendCell.textColor = kDim
+        legendLabel.cell = legendCell; legendLabel.tag = 99
+        legendLabel.isEditable = false; legendLabel.isBordered = false; legendLabel.drawsBackground = false; legendLabel.backgroundColor = .clear
         addSubview(legendLabel)
 
         let headers = ["S", "M", "T", "W", "T", "F", "S"]
         for (idx, h) in headers.enumerated() {
-            let lbl = NSTextField(labelWithString: h)
-            lbl.font = dynamicFont(size: 10, weight: .bold); lbl.textColor = kDim; lbl.alignment = .center
+            let lbl = NSTextField()
+            let cell = CenteredTextFieldCell(textCell: h)
+            cell.alignment = .center; cell.font = dynamicFont(size: 10, weight: .bold)
+            lbl.cell = cell; lbl.stringValue = h
+            lbl.isEditable = false; lbl.isBordered = false; lbl.drawsBackground = false; lbl.backgroundColor = .clear
             if let tagColor = tagColorForWeekday(idx) {
                 lbl.textColor = tagColor; lbl.tag = 100
             } else {
-                lbl.tag = 99
+                lbl.textColor = kDim; lbl.tag = 99
             }
             addSubview(lbl); dayViews.append(lbl)
         }
 
         for _ in 0..<42 {
-            let lbl = NSTextField(); lbl.font = dynamicFont(size: 11, weight: .bold); lbl.alignment = .center
-            lbl.isEditable = false; lbl.isBordered = false; lbl.backgroundColor = .clear; lbl.wantsLayer = true; lbl.layer?.cornerRadius = 6
+            let lbl = NSTextField()
+            let cell = CenteredTextFieldCell(textCell: "")
+            cell.alignment = .center; cell.font = dynamicFont(size: 11, weight: .bold)
+            lbl.cell = cell
+            lbl.isEditable = false; lbl.isBordered = false; lbl.drawsBackground = false; lbl.backgroundColor = .clear
+            lbl.wantsLayer = true; lbl.layer?.cornerRadius = kRadius
             let dclick = NSClickGestureRecognizer(target: self, action: #selector(dayDoubleClicked(_:)))
             dclick.numberOfClicksRequired = 2
             lbl.addGestureRecognizer(dclick)
+
+            let dot = NSView()
+            dot.wantsLayer = true; dot.layer?.cornerRadius = 1.5; dot.isHidden = true
+            lbl.addSubview(dot)
+            eventDots.append(dot)
+
             addSubview(lbl); dayViews.append(lbl)
         }
         updateCalendar()
@@ -184,19 +201,44 @@ class CalendarView: BaseWidgetView {
     override func layout() {
         super.layout()
         let w = bounds.width, h = bounds.height
-        titleLabel.frame  = NSRect(x: 12, y: h - 28, width: w - 76, height: 18)
-        prevBtn.frame     = NSRect(x: w - 58, y: h - 28, width: 20, height: 18)
-        nextBtn.frame     = NSRect(x: w - 34, y: h - 28, width: 20, height: 18)
+        titleLabel.frame  = NSRect(x: 12, y: h - 30, width: w - 76, height: 20)
+        prevBtn.frame     = NSRect(x: w - 60, y: h - 30, width: 22, height: 20)
+        nextBtn.frame     = NSRect(x: w - 34, y: h - 30, width: 22, height: 20)
         legendLabel.frame = NSRect(x: 12, y: 6, width: w - 24, height: 14)
 
-        let gridX: CGFloat = 12, gridY: CGFloat = 24, colW = (w - 24) / 7.0, rowH = (h - 56) / 7.0
+        let gridX: CGFloat = 12
+        let gridBottom: CGFloat = 24
+        let gridTop: CGFloat = h - 36
+        let headerH: CGFloat = 18
+        let colW = (w - 24) / 7.0
+        let rowsCount = max(5, currentRowCount)
+        let daysAreaH = max(40, gridTop - headerH - gridBottom)
+        let rowH = daysAreaH / CGFloat(rowsCount)
+
         for i in 0..<7 {
-            dayViews[i].frame = NSRect(x: gridX + CGFloat(i) * colW, y: gridY + 6 * rowH, width: colW, height: rowH)
+            dayViews[i].frame = NSRect(x: gridX + CGFloat(i) * colW, y: gridTop - headerH, width: colW, height: headerH)
         }
+
+        let insetX: CGFloat = 2.0
+        let insetY: CGFloat = 2.0
         for r in 0..<6 {
             for c in 0..<7 {
                 let idx = 7 + r * 7 + c
-                dayViews[idx].frame = NSRect(x: gridX + CGFloat(c) * colW, y: gridY + CGFloat(5 - r) * rowH, width: colW, height: rowH)
+                let lbl = dayViews[idx]
+                if r < rowsCount {
+                    lbl.isHidden = false
+                    let cellRect = NSRect(
+                        x: gridX + CGFloat(c) * colW + insetX,
+                        y: gridBottom + CGFloat(rowsCount - 1 - r) * rowH + insetY,
+                        width: max(8, colW - insetX * 2),
+                        height: max(8, rowH - insetY * 2)
+                    )
+                    lbl.frame = cellRect
+                    let dot = eventDots[r * 7 + c]
+                    dot.frame = NSRect(x: (cellRect.width - 3.5) / 2, y: 2.5, width: 3.5, height: 3.5)
+                } else {
+                    lbl.isHidden = true
+                }
             }
         }
     }
@@ -216,9 +258,15 @@ class CalendarView: BaseWidgetView {
         var fComp = DateComponents(); fComp.year = year; fComp.month = month; fComp.day = 1
         let fDate = cal.date(from: fComp)!, fWeekday = cal.component(.weekday, from: fDate) - 1
         let numDays = cal.range(of: .day, in: .month, for: targetDate)!.count
+        let neededRows = max(5, Int(ceil(Double(fWeekday + numDays) / 7.0)))
+        if neededRows != currentRowCount {
+            currentRowCount = neededRows
+            needsLayout = true
+        }
 
         for i in 0..<42 {
             let lbl = dayViews[7 + i], dNum = i - fWeekday + 1
+            let dot = eventDots[i]
             let c = i % 7
             let recurringColor = tagColorForWeekday(c)
 
@@ -226,29 +274,34 @@ class CalendarView: BaseWidgetView {
                 lbl.tag = dNum
                 let dateKey = String(format: "%04d-%02d-%02d", year, month, dNum)
                 let hasEv = CalendarEventStore.shared.hasEvents(for: dateKey)
-                lbl.stringValue = hasEv ? "\(dNum) •" : "\(dNum)"
+                lbl.stringValue = "\(dNum)"
+                dot.isHidden = !hasEv
 
                 if isCurrentMonth && dNum == today {
-                    lbl.backgroundColor = kAccent
-                    lbl.textColor = (ThemeManager.shared.currentPreset == .glass || ThemeManager.shared.currentPreset == .childish) ? .white : kSurface
+                    lbl.layer?.backgroundColor = kAccent.cgColor
+                    let fg: NSColor = (ThemeManager.shared.currentPreset == .glass || ThemeManager.shared.currentPreset == .childish) ? .white : kSurface
+                    lbl.textColor = fg
                     lbl.font = dynamicFont(size: 11, weight: .bold)
-                    lbl.layer?.borderWidth = recurringColor != nil ? 2.0 : 0
-                    lbl.layer?.borderColor = (recurringColor ?? NSColor.clear).cgColor
+                    lbl.layer?.borderWidth = recurringColor != nil ? 2.0 : kBorderWidth
+                    lbl.layer?.borderColor = (recurringColor ?? kBorder).cgColor
+                    dot.layer?.backgroundColor = fg.cgColor
                 } else if hasEv {
                     lbl.font = dynamicFont(size: 11, weight: .bold)
-                    lbl.backgroundColor = (NSColor(hex: "#8B5CF6") ?? kAccent).withAlphaComponent(0.25)
-                    lbl.textColor = (ThemeManager.shared.currentPreset == .glass) ? (NSColor(hex: "#C4B5FD") ?? kText) : (NSColor(hex: "#6D28D9") ?? kText)
+                    lbl.layer?.backgroundColor = (NSColor(hex: "#8B5CF6") ?? kAccent).withAlphaComponent(0.25).cgColor
+                    let fg = (ThemeManager.shared.currentPreset == .glass) ? (NSColor(hex: "#C4B5FD") ?? kText) : (NSColor(hex: "#6D28D9") ?? kText)
+                    lbl.textColor = fg
                     lbl.layer?.borderWidth = 1.5
                     lbl.layer?.borderColor = (NSColor(hex: "#8B5CF6") ?? kAccent).withAlphaComponent(0.6).cgColor
+                    dot.layer?.backgroundColor = fg.cgColor
                 } else if let rc = recurringColor {
-                    lbl.font = dynamicFont(size: 11, weight: .medium)
-                    lbl.backgroundColor = rc.withAlphaComponent(0.22)
+                    lbl.font = dynamicFont(size: 11, weight: .semibold)
+                    lbl.layer?.backgroundColor = rc.withAlphaComponent(0.22).cgColor
                     lbl.textColor = rc
                     lbl.layer?.borderWidth = 1.0
-                    lbl.layer?.borderColor = rc.withAlphaComponent(0.45).cgColor
+                    lbl.layer?.borderColor = rc.withAlphaComponent(0.55).cgColor
                 } else {
                     lbl.font = dynamicFont(size: 11, weight: .medium)
-                    lbl.backgroundColor = .clear
+                    lbl.layer?.backgroundColor = NSColor.clear.cgColor
                     lbl.textColor = kText
                     lbl.layer?.borderWidth = 0
                     lbl.layer?.borderColor = NSColor.clear.cgColor
@@ -256,10 +309,12 @@ class CalendarView: BaseWidgetView {
             } else {
                 lbl.tag = 0
                 lbl.stringValue = ""
-                lbl.backgroundColor = .clear
+                dot.isHidden = true
+                lbl.layer?.backgroundColor = NSColor.clear.cgColor
                 lbl.layer?.borderWidth = 0
                 lbl.layer?.borderColor = NSColor.clear.cgColor
             }
+            lbl.needsDisplay = true
         }
     }
 
@@ -391,11 +446,14 @@ class CalendarView: BaseWidgetView {
     }
 
     override func applyTheme(preset: ThemePreset) {
-        for btn in [prevBtn, nextBtn] {
+        for (btn, sym) in [(prevBtn, "<"), (nextBtn, ">")] {
             btn.layer?.backgroundColor = kSurface.cgColor
             btn.layer?.borderColor = kBorder.cgColor
             btn.layer?.borderWidth = kBorderWidth
-            btn.contentTintColor = kText
+            btn.attributedTitle = NSAttributedString(string: sym, attributes: [
+                .font: dynamicFont(size: 11, weight: .bold),
+                .foregroundColor: kText
+            ])
         }
         updateThemeRecursively(preset: preset)
         updateCalendar()
