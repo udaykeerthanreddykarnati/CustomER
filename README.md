@@ -9,7 +9,7 @@ Designed to live directly on your desktop background with zero third-party depen
 ## Quick Start
 
 ### Prerequisites
-- **macOS 12.0 (Monterey)** or later (macOS 13+ for Launch at Login toggle)
+- **macOS 12.0 (Monterey)** or later
 - **Swift compiler** (Xcode or `xcode-select --install`)
 
 ### Build & Run
@@ -41,12 +41,12 @@ CustomER/
 ├── build.sh                     # Compiles all Swift modules with zero external dependencies
 ├── watch.sh                     # Hot-reload watcher for Sources/
 └── Sources/
-    ├── main.swift               # App lifecycle, single-instance lock, menu bar & hotkeys
+    ├── main.swift               # App lifecycle, single-instance lock, IPC & hotkeys
     ├── Core/
     │   ├── AppPaths.swift       # Unified ~/Library/Application Support/CustomER/ + atomic saves
     │   ├── BaseWidgetView.swift # Shared window dragging, position persistence & theme sync
     │   ├── DateFormatters.swift # Cached DateFormatters (zero per-tick allocations)
-    │   ├── KeychainHelper.swift # macOS Keychain storage for Gmail & sync tokens
+    │   ├── KeychainHelper.swift # Private 0600 local secret store for Gmail & sync tokens
     │   ├── PositionManager.swift# Window position persistence + multi-monitor clamping
     │   ├── ShellHelpers.swift   # AppleScript / shell utilities
     │   ├── SyncServer.swift     # Token-authenticated LAN HTTP server + optional cloud sync
@@ -59,7 +59,7 @@ CustomER/
         ├── BatteryWidget.swift          # Event-driven Mac battery + Bluetooth device levels
         ├── DigitalClockWidget.swift     # Minimal clock & date
         ├── SpotifyWidget.swift          # Event-driven Spotify player (zero idle polling)
-        ├── MailWidget.swift             # Keychain-backed Gmail unread count & preview
+        ├── MailWidget.swift             # Gmail unread count & preview (private 0600 credentials)
         ├── GifWidget.swift              # Transparent desktop GIF (click to play/pause)
         ├── WallpaperWidget.swift        # Wallpaper folder picker with smooth transition
         ├── ThemeCustomizerWidget.swift  # Live preset, font & color wheel customizer
@@ -76,12 +76,12 @@ CustomER/
 - **Weekly Timetable (`TimetableWidget`)**: Vector grid that highlights today's row automatically and supports merged multi-hour blocks.
 - **Battery & Bluetooth (`BatteryWidget`)**: Event-driven Mac battery updates via `IOKit` plus connected Bluetooth accessory levels (AirPods L/R/Case, headphones, mice).
 - **Spotify Player (`SpotifyWidget`)**: Subscribes to macOS `com.spotify.client.PlaybackStateChanged` notifications for zero-CPU idle behavior and live album art/controls.
-- **Gmail Unread (`MailWidget`)**: Displays unread count and latest sender/subject; credentials are stored in macOS Keychain.
+- **Gmail Unread (`MailWidget`)**: Displays unread count and latest sender/subject; credentials are stored privately in an owner-only (`chmod 0600`) local file.
 - **Digital Clock (`DigitalClockWidget`)**: Clean time and date with zero wasted redraws.
 - **GIF Widget (`GifWidget`)**: Loads the first `.gif` in `~/Pictures/CustomERGifs/`. Click to play/pause, drag to move.
 - **Wallpaper Switcher (`Option + W`)**: Auto-watching grid of `~/Pictures/Wallpapers` (or any chosen folder) with animated wallpaper transitions.
 - **Theme Customizer (`Option + E`)**: Cycle presets (`MINIMAL`, `GLASS`, `CHILDISH`), pick any system font, or customize text/widget colors with the native color wheel.
-- **Dynamic Island Notch (`NotchWidget`)**: Hidden by default; toggle anytime from the menu bar icon (`Toggle Widgets -> Dynamic Notch`).
+- **Dynamic Island Notch (`NotchWidget`)**: Hidden by default; toggle anytime via IPC or `widget_visibility.json`.
 
 ---
 
@@ -160,18 +160,20 @@ Want certain weekdays color-coded every week (e.g., gym days, chores, meetings)?
 
 ---
 
-## Global Hotkeys & Menu Bar
+## Global Hotkeys
 
-- **Menu Bar Icon** (`⊞`): Toggle individual widgets, open Wallpaper/Theme panels, toggle Launch at Login, or quit.
 - **`Option + W`** *(on Desktop)*: Toggle floating Wallpaper Switcher.
 - **`Option + E`** *(on Desktop)*: Toggle Style & Theme Customizer.
 - **`Option + D`**: Toggle macOS Desktop icons on/off.
 
 ---
 
-## Gmail & Optional Cloud Sync Setup
+## Gmail, Secret Storage & Optional Cloud Sync
 
-- **Gmail Widget**: Double-click the Gmail widget to enter your Gmail address and a 16-character Google App Password. Credentials are saved directly in **macOS Keychain**.
+- **Adaptive Secret Storage**:
+  - **Default (unsigned local builds)**: Credentials are stored in an owner-only (`chmod 0600`) file at `~/Library/Application Support/CustomER/.secrets.json` (never in Git, zero macOS Keychain popups when recompiling).
+  - **Optional macOS Keychain mode (per-app ACL isolation, zero rebuild popups)**: Open **Keychain Access → Certificate Assistant → Create a Certificate…**, name it `CustomER Local`, and choose Certificate Type **Code Signing**. Running `./build.sh` will automatically sign the binary with `CustomER Local`, and `CustomERApp` will automatically migrate `.secrets.json` into a single macOS Keychain item (`secrets_bundle`) and delete the local file.
+- **Gmail Widget**: Double-click the Gmail widget to enter your Gmail address and a 16-character Google App Password.
 - **LAN Task Sync**: Click **Sync** on the Todo widget and scan the QR code from your phone on the same Wi-Fi. All `/api/*` endpoints require the random per-device pairing token embedded in the QR URL.
 - **Optional GitHub Gist Cloud Sync**: Create `~/Library/Application Support/CustomER/sync.json` (`chmod 600`) with:
   ```json
@@ -180,7 +182,7 @@ Want certain weekdays color-coded every week (e.g., gym days, chores, meetings)?
     "github_token": "YOUR_PERSONAL_ACCESS_TOKEN"
   }
   ```
-  On next launch, CustomER imports them into macOS Keychain and syncs automatically (with ETag caching and sleep pause). Never commit credentials to the repository.
+  On next launch, CustomER imports them into its secret store (removing `sync.json`) and syncs automatically (with ETag caching and sleep pause). Never commit credentials to the repository.
 
 ---
 

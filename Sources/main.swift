@@ -1,7 +1,6 @@
 import AppKit
 import Carbon
 import Foundation
-import ServiceManagement
 
 // MARK: - Single-Instance Guard (Prevents Duplicate Widgets & Port 4321 Collisions)
 final class SingleInstanceLock {
@@ -33,13 +32,29 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     var wallpaperWindow: NSWindow?
     var themeCustomizerWindow: NSWindow?
 
-    private var statusItem: NSStatusItem?
     private var wallpaperHotKeyRef: EventHotKeyRef?
     private var themeHotKeyRef: EventHotKeyRef?
     private var desktopHotKeyRef: EventHotKeyRef?
+    private var savedVisibility: [String: Bool] = [:]
+    private let visibilityURL = AppPaths.file("widget_visibility.json")
+
+    private func loadWidgetVisibility() {
+        if let data = try? Data(contentsOf: visibilityURL),
+           let dict = try? JSONDecoder().decode([String: Bool].self, from: data) {
+            savedVisibility = dict
+        }
+    }
+
+    private func setWidgetVisible(_ key: String, visible: Bool) {
+        savedVisibility[key] = visible
+        if let data = try? JSONEncoder().encode(savedVisibility) {
+            AppPaths.writeAtomically(data, to: visibilityURL)
+        }
+    }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         AppPaths.migrateLegacyDataIfNeeded()
+        loadWidgetVisibility()
 
         DistributedNotificationCenter.default().addObserver(
             self,
@@ -105,10 +120,9 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         let styleWin = spawnWidget(key: "theme_customizer", defaultRect: NSRect(x: 612, y: 540, width: 486, height: 75), hidden: true) { ThemeCustomizerView(frame: $0) }
         themeCustomizerWindow = styleWin
 
-        // 15. Optional Dynamic Island Notch Widget (Hidden by default; toggle from Menu Bar or IPC)
+        // 15. Optional Dynamic Island Notch Widget (Hidden by default; toggle via IPC or widget_visibility.json)
         setupNotchWidget(hidden: true)
 
-        setupStatusBarMenu()
         setupHotkeys()
     }
 
@@ -118,7 +132,8 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         let rect = NSRect(origin: origin, size: defaultRect.size)
         let win = addWindow(rect: rect, view: makeView(NSRect(origin: .zero, size: rect.size)))
         widgetWindows[key] = win
-        if hidden { win.orderOut(nil) }
+        let shouldHide = savedVisibility[key].map { !$0 } ?? hidden
+        if shouldHide { win.orderOut(nil) }
         return win
     }
 
@@ -143,7 +158,8 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         notchWin.hasShadow = false
         notchWin.ignoresMouseEvents = false
         notchWin.contentView = NotchWidgetView(frame: NSRect(origin: .zero, size: NSSize(width: notchW, height: notchH)))
-        if !hidden { notchWin.orderFrontRegardless() }
+        let shouldHide = savedVisibility["notch"].map { !$0 } ?? hidden
+        if !shouldHide { notchWin.orderFrontRegardless() }
         widgetWindows["notch"] = notchWin
         windows.append(notchWin)
     }
@@ -157,113 +173,6 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         }
     }
 
-    // MARK: - Subtle Menu Bar Control Item
-    private func setupStatusBarMenu() {
-        let item = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
-        if let btn = item.button {
-            btn.image = NSImage(systemSymbolName: "square.grid.2x2", accessibilityDescription: "CustomER")
-            btn.image?.isTemplate = true
-        }
-        statusItem = item
-        rebuildStatusMenu()
-    }
-
-    private func rebuildStatusMenu() {
-        let menu = NSMenu()
-        menu.addItem(withTitle: "CustomER Widgets", action: nil, keyEquivalent: "")
-        menu.addItem(.separator())
-
-        let orderedKeys: [(String, String)] = [
-            ("reminders", "Reminders (Todo)"),
-            ("habits", "Daily Habits"),
-            ("calendar", "Calendar"),
-            ("timetable", "Timetable"),
-            ("battery", "Battery & Bluetooth"),
-            ("digital_clock", "Digital Clock"),
-            ("spotify", "Spotify Player"),
-            ("mail", "Gmail Unread"),
-            ("gif", "GIF Widget"),
-            ("notch", "Dynamic Notch")
-        ]
-
-        let widgetsSub = NSMenu()
-        for (key, title) in orderedKeys {
-            let mi = NSMenuItem(title: title, action: #selector(menuToggleWidget(_:)), keyEquivalent: "")
-            mi.target = self
-            mi.representedObject = key
-            mi.state = (widgetWindows[key]?.isVisible == true) ? .on : .off
-            widgetsSub.addItem(mi)
-        }
-        let widgetsRoot = NSMenuItem(title: "Toggle Widgets", action: nil, keyEquivalent: "")
-        widgetsRoot.submenu = widgetsSub
-        menu.addItem(widgetsRoot)
-
-        let wallItem = NSMenuItem(title: "Wallpaper Switcher (⌥W)", action: #selector(menuOpenWallpaper), keyEquivalent: "")
-        wallItem.target = self; menu.addItem(wallItem)
-
-        let themeItem = NSMenuItem(title: "Theme Customizer (⌥E)", action: #selector(menuOpenTheme), keyEquivalent: "")
-        themeItem.target = self; menu.addItem(themeItem)
-
-        let deskItem = NSMenuItem(title: "Toggle Desktop Icons (⌥D)", action: #selector(toggleDesktopIcons), keyEquivalent: "")
-        deskItem.target = self; menu.addItem(deskItem)
-
-        menu.addItem(.separator())
-
-        if #available(macOS 13.0, *) {
-            let loginItem = NSMenuItem(title: "Launch at Login", action: #selector(toggleLaunchAtLogin(_:)), keyEquivalent: "")
-            loginItem.target = self
-            loginItem.state = (SMAppService.mainApp.status == .enabled) ? .on : .off
-            menu.addItem(loginItem)
-        }
-
-        let quitItem = NSMenuItem(title: "Quit CustomER", action: #selector(quitApp), keyEquivalent: "q")
-        quitItem.target = self; menu.addItem(quitItem)
-
-        statusItem?.menu = menu
-    }
-
-    @objc private func menuToggleWidget(_ sender: NSMenuItem) {
-        guard let key = sender.representedObject as? String, let win = widgetWindows[key] else { return }
-        if win.isVisible {
-            win.orderOut(nil)
-        } else {
-            win.makeKeyAndOrderFront(nil)
-        }
-        rebuildStatusMenu()
-    }
-
-    @objc private func menuOpenWallpaper() {
-        guard let win = wallpaperWindow else { return }
-        win.level = .floating
-        win.makeKeyAndOrderFront(nil)
-        NSApp.activate(ignoringOtherApps: true)
-    }
-
-    @objc private func menuOpenTheme() {
-        guard let win = themeCustomizerWindow else { return }
-        win.level = .floating
-        win.makeKeyAndOrderFront(nil)
-        NSApp.activate(ignoringOtherApps: true)
-    }
-
-    @available(macOS 13.0, *)
-    @objc private func toggleLaunchAtLogin(_ sender: NSMenuItem) {
-        do {
-            if SMAppService.mainApp.status == .enabled {
-                try SMAppService.mainApp.unregister()
-            } else {
-                try SMAppService.mainApp.register()
-            }
-        } catch {
-            // Works automatically when bundled as a .app; standalone CLI binaries can use LaunchAgents.
-        }
-        rebuildStatusMenu()
-    }
-
-    @objc private func quitApp() {
-        NSApp.terminate(nil)
-    }
-
     // MARK: - DistributedNotificationCenter IPC
     @objc private func handleIPCControlNotification(_ notif: Notification) {
         guard let userInfo = notif.userInfo as? [String: String],
@@ -274,13 +183,12 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             case "kill_app":
                 NSApp.terminate(nil); return
             case "hide_all", "kill_all", "close_all":
-                self.widgetWindows.values.forEach { $0.orderOut(nil) }
-                self.rebuildStatusMenu(); return
+                self.widgetWindows.values.forEach { $0.orderOut(nil) }; return
             case "show_all", "open_all":
                 for (key, win) in self.widgetWindows where key != "wallpaper_switcher" && key != "theme_customizer" && key != "notch" {
                     win.makeKeyAndOrderFront(nil)
                 }
-                self.rebuildStatusMenu(); return
+                return
             case "set_font":
                 if let fontName = userInfo["value"] { ThemeManager.shared.customFontName = fontName }; return
             case "set_text_color":
@@ -309,7 +217,6 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                 } else if ["show", "open"].contains(action) {
                     self.widgetWindows.values.forEach { $0.makeKeyAndOrderFront(nil) }
                 }
-                self.rebuildStatusMenu()
                 return
             }
 
@@ -317,12 +224,18 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             guard let win = self.widgetWindows[widgetKey] else { return }
 
             switch action {
-            case "hide", "kill", "close": win.orderOut(nil)
-            case "show", "open":          win.makeKeyAndOrderFront(nil)
-            case "toggle":                win.isVisible ? win.orderOut(nil) : win.makeKeyAndOrderFront(nil)
+            case "hide", "kill", "close":
+                win.orderOut(nil)
+                self.setWidgetVisible(widgetKey, visible: false)
+            case "show", "open":
+                win.makeKeyAndOrderFront(nil)
+                self.setWidgetVisible(widgetKey, visible: true)
+            case "toggle":
+                let nextVisible = !win.isVisible
+                if nextVisible { win.makeKeyAndOrderFront(nil) } else { win.orderOut(nil) }
+                self.setWidgetVisible(widgetKey, visible: nextVisible)
             default: break
             }
-            self.rebuildStatusMenu()
         }
     }
 

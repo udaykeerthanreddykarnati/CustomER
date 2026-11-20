@@ -18,8 +18,10 @@ ClipManager/
 synctask/
 
 # User Data, Personal Configs & Private Credentials
+.secrets.json
 gmail.json
 sync.json
+widget_visibility.json
 positions.json
 github.json
 theme.json

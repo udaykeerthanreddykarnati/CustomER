@@ -120,7 +120,7 @@ class MailView: BaseWidgetView {
         senderLabel.isEditable = false; senderLabel.isBordered = false; senderLabel.backgroundColor = .clear
         cardView.addSubview(senderLabel)
 
-        subjectLabel.stringValue = "Stored securely in Keychain"
+        subjectLabel.stringValue = "Stored privately on disk (0600)"
         subjectLabel.font = dynamicFont(size: 10, weight: .medium); subjectLabel.textColor = kDim; subjectLabel.lineBreakMode = .byTruncatingTail; subjectLabel.tag = 99
         subjectLabel.isEditable = false; subjectLabel.isBordered = false; subjectLabel.backgroundColor = .clear
         cardView.addSubview(subjectLabel)
@@ -161,8 +161,10 @@ class MailView: BaseWidgetView {
            let json = try? JSONSerialization.jsonObject(with: data) as? [String: String],
            let u = json["email"], !u.isEmpty,
            let p = json["app_password"], !p.isEmpty {
-            _ = KeychainHelper.save(u, account: Self.emailAccount)
-            _ = KeychainHelper.save(p, account: Self.passAccount)
+            if KeychainHelper.save(u, account: Self.emailAccount),
+               KeychainHelper.save(p, account: Self.passAccount) {
+                try? FileManager.default.removeItem(at: legacyPath)
+            }
             return (u, p)
         }
         return nil
@@ -171,7 +173,7 @@ class MailView: BaseWidgetView {
     private func promptConfigureGmail() {
         guard let window = self.window else { return }
         let alert = NSAlert()
-        alert.messageText = "Connect Gmail (Stored in macOS Keychain)"
+        alert.messageText = "Connect Gmail (Stored Privately Locally)"
         alert.informativeText = "Enter your Gmail address and a 16-character Google App Password."
         alert.addButton(withTitle: "Save"); alert.addButton(withTitle: "Cancel")
 
@@ -202,7 +204,7 @@ class MailView: BaseWidgetView {
             countNumLabel.stringValue = "0"
             badgeLabel.stringValue = "0 UNREAD"
             senderLabel.stringValue = "Double-click to set Gmail"
-            subjectLabel.stringValue = "Stored securely in Keychain"
+            subjectLabel.stringValue = "Stored privately on disk (0600)"
             return
         }
         fetchGmailOnline(user: creds.email, pass: creds.pass)

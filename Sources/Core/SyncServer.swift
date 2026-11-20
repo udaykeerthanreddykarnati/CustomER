@@ -53,8 +53,10 @@ final class TutuSyncServer {
            let json = try? JSONSerialization.jsonObject(with: data) as? [String: String],
            let id = json["gist_id"]?.trimmingCharacters(in: .whitespacesAndNewlines), !id.isEmpty,
            let tok = json["github_token"]?.trimmingCharacters(in: .whitespacesAndNewlines), !tok.isEmpty {
-            _ = KeychainHelper.save(id, account: Self.gistIdAccount)
-            _ = KeychainHelper.save(tok, account: Self.gistTokenAccount)
+            if KeychainHelper.save(id, account: Self.gistIdAccount),
+               KeychainHelper.save(tok, account: Self.gistTokenAccount) {
+                try? FileManager.default.removeItem(at: fileURL)
+            }
             return (id, tok)
         }
         return nil
