@@ -64,6 +64,7 @@ class SpotifyView: BaseWidgetView {
     private var localTickTimer: Timer?
     private var resyncTickCounter = 0
     private var currentArtUrl = ""
+    private var currentTrackURI = ""
     private var isPlaying = false
     private var currentPosition: Double = 0.0
     private var currentDuration: Double = 1.0
@@ -181,33 +182,45 @@ class SpotifyView: BaseWidgetView {
     }
 
     @objc private func onSpotifyPlaybackNotification(_ notif: Notification) {
-        guard let info = notif.userInfo else {
-            querySpotifyFullState()
-            return
-        }
+        // Never respond to a playback notification with AppleScript: Spotify posts one while it is
+        // quitting, and a `tell application "Spotify"` at that moment relaunches it.
+        // Everything we need is already in the notification payload.
+        guard let info = notif.userInfo else { return }
         let playerState = (info["Player State"] as? String) ?? ""
-        if playerState == "Stopped" {
+        if playerState == "Stopped" || playerState.isEmpty {
             DispatchQueue.main.async { self.showOfflineState() }
             return
         }
         let track = (info["Name"] as? String) ?? ""
         let artist = (info["Artist"] as? String) ?? ""
         let durationMs = (info["Duration"] as? Double) ?? ((info["Duration"] as? Int).map(Double.init) ?? 0)
+        let position = (info["Playback Position"] as? Double) ?? ((info["Playback Position"] as? Int).map(Double.init))
+        let trackURI = (info["Track ID"] as? String) ?? ""
         let playing = (playerState == "Playing")
 
         DispatchQueue.main.async {
-            if !track.isEmpty {
-                self.trackLabel.stringValue = track
-                self.artistLabel.stringValue = artist
-                if durationMs > 0 { self.currentDuration = durationMs / 1000.0 }
-                self.isPlaying = playing
-                self.playBtn.title = playing ? "⏸" : "▶"
-                self.eqView.isPlaying = playing
-                self.setControlsHidden(false)
-                self.updateLocalTicker()
+            guard !track.isEmpty else { return }
+            self.trackLabel.stringValue = track
+            self.artistLabel.stringValue = artist
+            if durationMs > 0 { self.currentDuration = durationMs / 1000.0 }
+            if let pos = position { self.currentPosition = pos }
+            self.isPlaying = playing
+            self.playBtn.title = playing ? "⏸" : "▶"
+            self.eqView.isPlaying = playing
+            self.currTimeLabel.stringValue = self.fmtTime(self.currentPosition)
+            self.durTimeLabel.stringValue = self.fmtTime(self.currentDuration)
+            self.progressBar.progress = self.currentDuration > 0 ? CGFloat(self.currentPosition / self.currentDuration) : 0.0
+            self.setControlsHidden(false)
+            self.updateLocalTicker()
+
+            if !trackURI.isEmpty && trackURI != self.currentTrackURI {
+                self.currentTrackURI = trackURI
+                SpotifyArtworkResolver.resolve(trackURI: trackURI) { [weak self] url in
+                    guard let self = self, let url = url, url != self.currentArtUrl else { return }
+                    self.currentArtUrl = url
+                    self.loadArtwork(from: url)
+                }
             }
-            // Fetch exact artwork URL & playback position once per track/state change
-            self.querySpotifyFullState()
         }
     }
 
@@ -248,8 +261,7 @@ class SpotifyView: BaseWidgetView {
             DispatchQueue.main.async { self.showOfflineState() }
             return
         }
-        let sc = """
-        tell application "Spotify"
+        let body = """
             if player state is playing or player state is paused then
                 set trackName to name of current track
                 set artistName to artist of current track
@@ -259,11 +271,9 @@ class SpotifyView: BaseWidgetView {
                 set pDur to (duration of current track) / 1000.0
                 return trackName & "|||" & artistName & "|||" & artUrl & "|||" & pState & "|||" & pPos & "|||" & pDur
             end if
-        end tell
-        return "OFFLINE"
         """
         DispatchQueue.global(qos: .utility).async { [weak self] in
-            let res = runScript(sc)
+            let res = runGuardedAppScript(bundleID: "com.spotify.client", appName: "Spotify", body: body)
             DispatchQueue.main.async { self?.handleSpotifyResult(res) }
         }
     }
@@ -328,21 +338,21 @@ class SpotifyView: BaseWidgetView {
 
     @objc private func onPrev() {
         DispatchQueue.global(qos: .userInitiated).async { [weak self] in
-            _ = runScript("tell application \"Spotify\" to previous track")
+            _ = runGuardedAppScript(bundleID: "com.spotify.client", appName: "Spotify", body: "previous track")
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) { self?.querySpotifyFullState() }
         }
     }
 
     @objc private func onPlayPause() {
         DispatchQueue.global(qos: .userInitiated).async { [weak self] in
-            _ = runScript("tell application \"Spotify\" to playpause")
+            _ = runGuardedAppScript(bundleID: "com.spotify.client", appName: "Spotify", body: "playpause")
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) { self?.querySpotifyFullState() }
         }
     }
 
     @objc private func onNext() {
         DispatchQueue.global(qos: .userInitiated).async { [weak self] in
-            _ = runScript("tell application \"Spotify\" to next track")
+            _ = runGuardedAppScript(bundleID: "com.spotify.client", appName: "Spotify", body: "next track")
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) { self?.querySpotifyFullState() }
         }
     }

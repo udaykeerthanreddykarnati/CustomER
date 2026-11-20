@@ -1310,11 +1310,43 @@ class NotchWidgetView: NSView {
     }
 
     @objc private func onSpotifyChanged(_ notif: Notification) {
-        refreshSpotify()
+        // Use the notification payload directly. Never AppleScript here: Spotify posts this while
+        // quitting and `tell application "Spotify"` at that instant relaunches it.
+        guard let info = notif.userInfo else { return }
+        let playerState = (info["Player State"] as? String) ?? ""
+        if playerState == "Stopped" || playerState.isEmpty {
+            if mediaSource == .spotify || mediaSource == .none { setMediaOffline() }
+            return
+        }
+        let track = (info["Name"] as? String) ?? ""
+        guard !track.isEmpty else { return }
+        let artist = (info["Artist"] as? String) ?? ""
+        let durMs = (info["Duration"] as? Double) ?? ((info["Duration"] as? Int).map(Double.init) ?? 0)
+        let pos = (info["Playback Position"] as? Double) ?? ((info["Playback Position"] as? Int).map(Double.init) ?? currentPosition)
+        let trackURI = (info["Track ID"] as? String) ?? ""
+        let playing = (playerState == "Playing")
+        let res = [track, artist, "", playing ? "true" : "false", String(pos), String(durMs / 1000.0)].joined(separator: "|||")
+        handleMediaResult(res, source: .spotify)
+
+        if !trackURI.isEmpty {
+            SpotifyArtworkResolver.resolve(trackURI: trackURI) { [weak self] url in
+                guard let self = self, let url = url, url != self.currentArtUrl, self.currentTrack == track else { return }
+                self.currentArtUrl = url
+                self.loadArt(urlStr: url)
+            }
+        }
     }
 
     @objc private func onAppleMusicChanged(_ notif: Notification) {
-        refreshAppleMusic()
+        let playerState = (notif.userInfo?["Player State"] as? String) ?? ""
+        if playerState == "Stopped" {
+            if mediaSource == .appleMusic || mediaSource == .none { setMediaOffline() }
+            return
+        }
+        // Small delay so a quit-in-progress Music app is already gone before we check `is running`
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) { [weak self] in
+            self?.refreshAppleMusic()
+        }
     }
 
     private func refreshMediaState() {
@@ -1328,11 +1360,10 @@ class NotchWidgetView: NSView {
     }
 
     private func refreshSpotify() {
-        guard !NSRunningApplication.runningApplications(withBundleIdentifier: "com.spotify.client").isEmpty else {
+        guard isAppRunning("com.spotify.client") else {
             setMediaOffline(); return
         }
-        let sc = """
-        tell application "Spotify"
+        let body = """
             if player state is playing or player state is paused then
                 set trackName to name of current track
                 set artistName to artist of current track
@@ -1342,21 +1373,18 @@ class NotchWidgetView: NSView {
                 set pDur to (duration of current track) / 1000.0
                 return trackName & "|||" & artistName & "|||" & artUrl & "|||" & pState & "|||" & pPos & "|||" & pDur
             end if
-        end tell
-        return "OFFLINE"
         """
         DispatchQueue.global(qos: .utility).async { [weak self] in
-            let res = runScript(sc)
+            let res = runGuardedAppScript(bundleID: "com.spotify.client", appName: "Spotify", body: body)
             DispatchQueue.main.async { self?.handleMediaResult(res, source: .spotify) }
         }
     }
 
     private func refreshAppleMusic() {
-        guard !NSRunningApplication.runningApplications(withBundleIdentifier: "com.apple.Music").isEmpty else {
+        guard isAppRunning("com.apple.Music") else {
             setMediaOffline(); return
         }
-        let sc = """
-        tell application "Music"
+        let body = """
             if player state is playing or player state is paused then
                 set trackName to name of current track
                 set artistName to artist of current track
@@ -1365,11 +1393,9 @@ class NotchWidgetView: NSView {
                 set pDur to duration of current track
                 return trackName & "|||" & artistName & "||||||" & pState & "|||" & pPos & "|||" & pDur
             end if
-        end tell
-        return "OFFLINE"
         """
         DispatchQueue.global(qos: .utility).async { [weak self] in
-            let res = runScript(sc)
+            let res = runGuardedAppScript(bundleID: "com.apple.Music", appName: "Music", body: body)
             DispatchQueue.main.async { self?.handleMediaResult(res, source: .appleMusic) }
         }
     }
@@ -1498,36 +1524,40 @@ class NotchWidgetView: NSView {
         return String(format: "%d:%02d", t / 60, t % 60)
     }
 
+    private var mediaBundle: (id: String, name: String) {
+        mediaSource == .appleMusic ? ("com.apple.Music", "Music") : ("com.spotify.client", "Spotify")
+    }
+
     private func seekTo(fraction: CGFloat) {
         let targetSec = Double(fraction) * currentDuration
         currentPosition = targetSec
         currTimeLabel.stringValue = fmtTime(targetSec)
-        let appName = (mediaSource == .appleMusic) ? "Music" : "Spotify"
+        let app = mediaBundle
         DispatchQueue.global(qos: .userInitiated).async {
-            _ = runScript("tell application \"\(appName)\" to set player position to \(targetSec)")
+            _ = runGuardedAppScript(bundleID: app.id, appName: app.name, body: "set player position to \(targetSec)")
         }
     }
 
     @objc private func onPrev() {
-        let appName = (mediaSource == .appleMusic) ? "Music" : "Spotify"
+        let app = mediaBundle
         DispatchQueue.global(qos: .userInitiated).async { [weak self] in
-            _ = runScript("tell application \"\(appName)\" to previous track")
+            _ = runGuardedAppScript(bundleID: app.id, appName: app.name, body: "previous track")
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) { self?.refreshMediaState() }
         }
     }
 
     @objc private func onPlayPause() {
-        let appName = (mediaSource == .appleMusic) ? "Music" : "Spotify"
+        let app = mediaBundle
         DispatchQueue.global(qos: .userInitiated).async { [weak self] in
-            _ = runScript("tell application \"\(appName)\" to playpause")
+            _ = runGuardedAppScript(bundleID: app.id, appName: app.name, body: "playpause")
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) { self?.refreshMediaState() }
         }
     }
 
     @objc private func onNext() {
-        let appName = (mediaSource == .appleMusic) ? "Music" : "Spotify"
+        let app = mediaBundle
         DispatchQueue.global(qos: .userInitiated).async { [weak self] in
-            _ = runScript("tell application \"\(appName)\" to next track")
+            _ = runGuardedAppScript(bundleID: app.id, appName: app.name, body: "next track")
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) { self?.refreshMediaState() }
         }
     }
