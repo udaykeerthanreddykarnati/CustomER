@@ -22,15 +22,16 @@ class GmailAtomParser: NSObject, XMLParserDelegate {
     private var inEntry = false
     private var inAuthor = false
 
-    func parse(xmlData: Data) {
+    @discardableResult
+    func parse(xmlData: Data) -> Bool {
         let parser = XMLParser(data: xmlData)
         parser.delegate = self
-        parser.parse()
+        return parser.parse()
     }
 
     func parser(_ parser: XMLParser, didStartElement elementName: String, namespaceURI: String?, qualifiedName qName: String?, attributes attributeDict: [String: String] = [:]) {
         currentElement = elementName
-        if elementName == "fullcount" {
+        if !inEntry && elementName == "fullcount" {
             currentFullCountString = ""
         } else if elementName == "entry" {
             inEntry = true; currentTitle = ""; currentSummary = ""; currentAuthorName = ""; currentAuthorEmail = ""
@@ -54,8 +55,8 @@ class GmailAtomParser: NSObject, XMLParserDelegate {
         }
     }
 
-    func parser(_ parser: XMLParser, didEndElement elementName: String, namespaceURI: String?) {
-        if elementName == "fullcount" {
+    func parser(_ parser: XMLParser, didEndElement elementName: String, namespaceURI: String?, qualifiedName qName: String?) {
+        if !inEntry && elementName == "fullcount" {
             fullCount = Int(currentFullCountString.trimmingCharacters(in: .whitespacesAndNewlines)) ?? 0
         } else if elementName == "entry" {
             inEntry = false
@@ -68,6 +69,7 @@ class GmailAtomParser: NSObject, XMLParserDelegate {
         } else if elementName == "author" {
             inAuthor = false
         }
+        currentElement = ""
     }
 }
 
@@ -81,6 +83,7 @@ class MailView: BaseWidgetView {
 
     private var timer: Timer?
     private var isSleeping = false
+    private var lastFetchTime: Date = .distantPast
 
     private static let emailAccount = "gmail.email"
     private static let passAccount  = "gmail.app_password"
@@ -93,7 +96,10 @@ class MailView: BaseWidgetView {
     }
     required init?(coder: NSCoder) { fatalError() }
 
-    deinit { timer?.invalidate() }
+    deinit {
+        timer?.invalidate()
+        NSWorkspace.shared.notificationCenter.removeObserver(self)
+    }
 
     private func build() {
         titleLabel.stringValue = "GMAIL"
@@ -110,9 +116,13 @@ class MailView: BaseWidgetView {
         cardView.layer?.borderWidth = kBorderWidth; cardView.layer?.borderColor = kBorder.cgColor
         addSubview(cardView)
 
+        let countCell = CenteredTextFieldCell(textCell: "0")
+        countCell.alignment = .center
+        countCell.font = dynamicFont(size: 22, weight: .bold)
+        countNumLabel.cell = countCell
         countNumLabel.stringValue = "0"
         countNumLabel.font = dynamicFont(size: 22, weight: .bold); countNumLabel.textColor = kText; countNumLabel.alignment = .center
-        countNumLabel.isEditable = false; countNumLabel.isBordered = false; countNumLabel.backgroundColor = .clear
+        countNumLabel.isEditable = false; countNumLabel.isBordered = false; countNumLabel.drawsBackground = false; countNumLabel.backgroundColor = .clear
         cardView.addSubview(countNumLabel)
 
         senderLabel.stringValue = "Double-click to set Gmail"
@@ -132,7 +142,7 @@ class MailView: BaseWidgetView {
         titleLabel.frame = NSRect(x: 12, y: h - 28, width: 100, height: 18)
         badgeLabel.frame = NSRect(x: w - 120, y: h - 28, width: 108, height: 18)
         cardView.frame   = NSRect(x: 12, y: 12, width: w - 24, height: 58)
-        countNumLabel.frame = NSRect(x: 8, y: 14, width: 44, height: 30)
+        countNumLabel.frame = NSRect(x: 6, y: 4, width: 48, height: 50)
         senderLabel.frame   = NSRect(x: 58, y: 30, width: w - 90, height: 16)
         subjectLabel.frame  = NSRect(x: 58, y: 12, width: w - 90, height: 16)
     }
@@ -140,7 +150,8 @@ class MailView: BaseWidgetView {
     private func startTimer() {
         NSWorkspace.shared.notificationCenter.addObserver(self, selector: #selector(onSleep), name: NSWorkspace.willSleepNotification, object: nil)
         NSWorkspace.shared.notificationCenter.addObserver(self, selector: #selector(onWake), name: NSWorkspace.didWakeNotification, object: nil)
-        timer = Timer.scheduledTimer(withTimeInterval: 60.0, repeats: true) { [weak self] _ in
+        NSWorkspace.shared.notificationCenter.addObserver(self, selector: #selector(onActiveAppChanged(_:)), name: NSWorkspace.didActivateApplicationNotification, object: nil)
+        timer = Timer.scheduledTimer(withTimeInterval: 30.0, repeats: true) { [weak self] _ in
             guard let self = self, !self.isSleeping else { return }
             self.updateMail()
         }
@@ -148,6 +159,17 @@ class MailView: BaseWidgetView {
 
     @objc private func onSleep() { isSleeping = true }
     @objc private func onWake()  { isSleeping = false; updateMail() }
+
+    @objc private func onActiveAppChanged(_ notif: Notification) {
+        guard !isSleeping else { return }
+        guard let app = notif.userInfo?[NSWorkspace.applicationUserInfoKey] as? NSRunningApplication else { return }
+        let bid = app.bundleIdentifier ?? ""
+        // Refresh immediately when returning to Desktop/Finder or CustomER (throttled to 5s)
+        if (bid == "com.apple.finder" || app.processIdentifier == ProcessInfo.processInfo.processIdentifier),
+           Date().timeIntervalSince(lastFetchTime) >= 5.0 {
+            updateMail()
+        }
+    }
 
     private func getGmailCredentials() -> (email: String, pass: String)? {
         // 1. Primary: macOS Keychain
@@ -189,7 +211,9 @@ class MailView: BaseWidgetView {
         alert.beginSheetModal(for: window) { [weak self] resp in
             guard resp == .alertFirstButtonReturn else { return }
             let email = emailField.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
-            let pass = passField.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
+            let pass = passField.stringValue
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+                .replacingOccurrences(of: " ", with: "")
             if !email.isEmpty && !pass.isEmpty {
                 _ = KeychainHelper.save(email, account: Self.emailAccount)
                 _ = KeychainHelper.save(pass, account: Self.passAccount)
@@ -202,6 +226,7 @@ class MailView: BaseWidgetView {
     private func updateMail() {
         guard let creds = getGmailCredentials() else {
             countNumLabel.stringValue = "0"
+            countNumLabel.font = dynamicFont(size: 22, weight: .bold)
             badgeLabel.stringValue = "0 UNREAD"
             senderLabel.stringValue = "Double-click to set Gmail"
             subjectLabel.stringValue = "Stored privately on disk (0600)"
@@ -213,19 +238,35 @@ class MailView: BaseWidgetView {
     private func fetchGmailOnline(user: String, pass: String) {
         guard let url = URL(string: "https://mail.google.com/mail/feed/atom"),
               let loginData = "\(user):\(pass)".data(using: .utf8) else { return }
+        lastFetchTime = Date()
 
-        var req = URLRequest(url: url)
+        var req = URLRequest(url: url, cachePolicy: .reloadIgnoringLocalCacheData, timeoutInterval: 10.0)
         req.setValue("Basic \(loginData.base64EncodedString())", forHTTPHeaderField: "Authorization")
-        req.timeoutInterval = 10.0
+        req.setValue("no-cache", forHTTPHeaderField: "Cache-Control")
 
-        URLSession.shared.dataTask(with: req) { [weak self] data, _, error in
-            guard let data = data, error == nil else { return }
+        URLSession.shared.dataTask(with: req) { [weak self] data, response, error in
+            guard error == nil, let http = response as? HTTPURLResponse else { return }
+
+            if http.statusCode == 401 || http.statusCode == 403 {
+                DispatchQueue.main.async {
+                    self?.countNumLabel.stringValue = "!"
+                    self?.countNumLabel.font = dynamicFont(size: 22, weight: .bold)
+                    self?.badgeLabel.stringValue = "AUTH ERROR"
+                    self?.senderLabel.stringValue = "Gmail login rejected"
+                    self?.subjectLabel.stringValue = "Option+double-click to update"
+                }
+                return
+            }
+
+            guard http.statusCode == 200, let data = data else { return }
             let parser = GmailAtomParser()
-            parser.parse(xmlData: data)
+            guard parser.parse(xmlData: data) else { return }
 
             DispatchQueue.main.async {
                 let count = parser.fullCount
                 self?.countNumLabel.stringValue = "\(count)"
+                let numSize: CGFloat = count >= 1000 ? 13 : (count >= 100 ? 16 : 22)
+                self?.countNumLabel.font = dynamicFont(size: numSize, weight: .bold)
                 self?.badgeLabel.stringValue = "\(count) UNREAD"
                 if let first = parser.entries.first {
                     let sender = first.authorName.isEmpty ? (first.authorEmail.isEmpty ? "Gmail Sender" : first.authorEmail) : first.authorName
@@ -253,7 +294,7 @@ class MailView: BaseWidgetView {
 
     override func mouseDown(with event: NSEvent) {
         if event.clickCount == 2 {
-            if getGmailCredentials() == nil {
+            if event.modifierFlags.contains(.option) || getGmailCredentials() == nil {
                 promptConfigureGmail()
             } else if let url = URL(string: "https://mail.google.com") {
                 NSWorkspace.shared.open(url)
@@ -262,4 +303,19 @@ class MailView: BaseWidgetView {
         }
         super.mouseDown(with: event)
     }
+
+    override func menu(for event: NSEvent) -> NSMenu? {
+        let menu = NSMenu()
+        menu.addItem(withTitle: "Refresh Gmail", action: #selector(menuRefresh), keyEquivalent: "").target = self
+        menu.addItem(withTitle: "Open Gmail in Browser", action: #selector(menuOpenBrowser), keyEquivalent: "").target = self
+        menu.addItem(NSMenuItem.separator())
+        menu.addItem(withTitle: "Configure Gmail Credentials...", action: #selector(menuConfigure), keyEquivalent: "").target = self
+        return menu
+    }
+
+    @objc private func menuRefresh() { updateMail() }
+    @objc private func menuOpenBrowser() {
+        if let url = URL(string: "https://mail.google.com") { NSWorkspace.shared.open(url) }
+    }
+    @objc private func menuConfigure() { promptConfigureGmail() }
 }
