@@ -63,7 +63,7 @@ CustomER/
         ├── GifWidget.swift              # Transparent desktop GIF (click to play/pause)
         ├── WallpaperWidget.swift        # Wallpaper folder picker with smooth transition
         ├── ThemeCustomizerWidget.swift  # Live preset, font & color wheel customizer
-        └── NotchWidget.swift            # Optional Dynamic Island Spotify pill
+        └── NotchWidget.swift            # Dynamic Notch (media player, tasks & file shelf)
 ```
 
 ---
@@ -81,7 +81,7 @@ CustomER/
 - **GIF Widget (`GifWidget`)**: Loads the first `.gif` in `~/Pictures/CustomERGifs/`. Click to play/pause, drag to move.
 - **Wallpaper Switcher (`Option + W`)**: Auto-watching grid of `~/Pictures/Wallpapers` (or any chosen folder) with animated wallpaper transitions.
 - **Theme Customizer (`Option + E`)**: Cycle presets (`MINIMAL`, `GLASS`, `CHILDISH`), pick any system font, or customize text/widget colors with the native color wheel.
-- **Dynamic Notch (`NotchWidget`)**: BoringNotch-inspired interactive notch hugging your MacBook's physical camera cutout with concave top ears and spring-morphed expansion in your live CustomER theme. Hover to open, see live album art & equalizer wings on track playback, scrub Spotify/Apple Music, check off active tasks inline, or drag files straight onto the notch for the built-in File Shelf & AirDrop tray.
+- **Dynamic Notch (`NotchWidget`)**: Interactive notch inspired by [boring.notch](https://github.com/TheBoredTeam/boring.notch) hugging your MacBook's physical camera cutout with concave top ears and spring-morphed expansion in your live CustomER theme. Hover to open, see live album art & equalizer wings on track playback, scrub Spotify/Apple Music, check off active tasks inline, or drag files straight onto the notch for the built-in File Shelf & AirDrop tray.
 
 ---
 
@@ -189,3 +189,9 @@ Want certain weekdays color-coded every week (e.g., gym days, chores, meetings)?
 ## IPC Control (`DistributedNotificationCenter`)
 
 You can control running widgets from scripts via macOS `DistributedNotificationCenter` notification name `com.user.CustomERApp.control` with `userInfo` keys `action` (`show`, `hide`, `toggle`, `show_all`, `hide_all`, `set_font`, `set_bg_color`, `set_text_color`, `set_accent_color`, `reset_styles`, `kill_app`) and optional `widget` (`reminders`, `habits`, `calendar`, `timetable`, `battery`, `digital_clock`, `spotify`, `mail`, `gif`, `notch`) or `value`.
+
+---
+
+## Credits & Acknowledgments
+
+- **[boring.notch](https://github.com/TheBoredTeam/boring.notch)** by **TheBoredTeam** — Referenced for the design and interaction concepts behind CustomER's Dynamic Notch widget (`Sources/Widgets/NotchWidget.swift`), including the concave-ear notch silhouette, compact live-activity media wings, track-change sneak peek, and drag-and-drop File Shelf / AirDrop tray. CustomER's implementation is written independently in pure AppKit/CoreAnimation to integrate natively with CustomER's theme engine and desktop widgets.

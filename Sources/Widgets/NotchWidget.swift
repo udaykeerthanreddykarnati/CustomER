@@ -1,3 +1,7 @@
+// Dynamic Notch widget — design & UX inspired by boring.notch by TheBoredTeam
+// Reference: https://github.com/TheBoredTeam/boring.notch
+// Implemented natively in AppKit/CoreAnimation for CustomER's live theme engine.
+
 import AppKit
 import Foundation
 import IOKit.ps
