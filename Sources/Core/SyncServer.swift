@@ -18,6 +18,7 @@ final class TutuSyncServer {
     private var _syncVersion: Int = 1
     private var _lastAppliedPhoneVersion: Int = -1
     private var _lastEtag: String = ""
+    private var pendingPushWorkItem: DispatchWorkItem?
 
     private static let apiTokenAccount = "sync.lan.api_token"
     private static let gistIdAccount = "sync.github.gist_id"
@@ -116,8 +117,16 @@ final class TutuSyncServer {
         NSWorkspace.shared.notificationCenter.addObserver(
             self, selector: #selector(onDidWake), name: NSWorkspace.didWakeNotification, object: nil
         )
+        NotificationCenter.default.addObserver(
+            self, selector: #selector(onThemeChanged), name: ThemeManager.notifName, object: nil
+        )
 
         startCloudTimerIfConfigured()
+    }
+
+    @objc private func onThemeChanged() {
+        guard loadCloudConfig() != nil else { return }
+        pushStateToCloud(debounce: 1.0)
     }
 
     @objc private func onWillSleep() {
@@ -133,7 +142,9 @@ final class TutuSyncServer {
 
     private func startCloudTimerIfConfigured() {
         guard cloudTimer == nil, loadCloudConfig() != nil else { return }
-        pushStateToCloud()
+        // First bootstrap from the Gist so we adopt its monotonic version counter and
+        // preserve any offline phone edits before pushing local Mac changes.
+        bootstrapCloudSync()
         // 15s polling with ETag + sleep pause avoids GitHub rate limits and battery drain.
         cloudTimer = Timer.scheduledTimer(withTimeInterval: 15.0, repeats: true) { [weak self] _ in
             guard let self = self, !self.isSleeping else { return }
@@ -141,33 +152,130 @@ final class TutuSyncServer {
         }
     }
 
-    func pushStateToCloud() {
-        guard let cfg = loadCloudConfig() else { return }
-        DispatchQueue.main.async {
-            let version: Int = self.stateQueue.sync {
-                self._syncVersion += 1
-                return self._syncVersion
-            }
-            let stateData = self.buildStateJSON(source: "mac", version: version)
-            guard let stateStr = String(data: stateData, encoding: .utf8),
-                  let url = URL(string: "https://api.github.com/gists/\(cfg.gistId)") else { return }
+    private func bootstrapCloudSync() {
+        guard let cfg = loadCloudConfig(),
+              let url = URL(string: "https://api.github.com/gists/\(cfg.gistId)") else { return }
 
-            let bodyObj: [String: Any] = [
-                "files": [
-                    "tututodo_state.json": ["content": stateStr]
-                ]
-            ]
-            guard let bodyData = try? JSONSerialization.data(withJSONObject: bodyObj) else { return }
-            var req = URLRequest(url: url)
-            req.httpMethod = "PATCH"
-            req.setValue("Bearer \(cfg.token)", forHTTPHeaderField: "Authorization")
-            req.setValue("application/vnd.github+json", forHTTPHeaderField: "Accept")
-            req.setValue("application/json", forHTTPHeaderField: "Content-Type")
-            req.setValue("CustomER-mac", forHTTPHeaderField: "User-Agent")
-            req.httpBody = bodyData
-            req.timeoutInterval = 8.0
-            URLSession.shared.dataTask(with: req).resume()
+        var req = URLRequest(url: url, cachePolicy: .reloadIgnoringLocalCacheData, timeoutInterval: 8.0)
+        req.setValue("Bearer \(cfg.token)", forHTTPHeaderField: "Authorization")
+        req.setValue("application/vnd.github+json", forHTTPHeaderField: "Accept")
+        req.setValue("CustomER-mac", forHTTPHeaderField: "User-Agent")
+
+        URLSession.shared.dataTask(with: req) { [weak self] data, response, error in
+            guard let self = self else { return }
+            guard error == nil,
+                  let httpResp = response as? HTTPURLResponse,
+                  httpResp.statusCode == 200,
+                  let data = data,
+                  let gistJson = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any],
+                  let files = gistJson["files"] as? [String: Any],
+                  let fileObj = files["tututodo_state.json"] as? [String: Any],
+                  let contentStr = fileObj["content"] as? String,
+                  let contentData = contentStr.data(using: .utf8),
+                  let json = (try? JSONSerialization.jsonObject(with: contentData)) as? [String: Any] else {
+                self.pushStateToCloud(debounce: 0)
+                return
+            }
+
+            if let newEtag = httpResp.value(forHTTPHeaderField: "ETag") {
+                self.stateQueue.async { self._lastEtag = newEtag }
+            }
+
+            let remoteVersion = (json["version"] as? Int) ?? 0
+            let source = (json["source"] as? String) ?? ""
+            let remoteUpdatedAt = (json["updatedAt"] as? Double) ?? 0
+            let rawReminders = (json["reminders"] as? [[String: Any]]) ?? []
+
+            self.stateQueue.sync {
+                self._syncVersion = max(self._syncVersion, remoteVersion)
+            }
+
+            DispatchQueue.main.async {
+                let localLatest = ReminderStore.shared.latestUpdatedAt
+                if source == "phone" && remoteUpdatedAt > localLatest {
+                    self.stateQueue.sync { self._lastAppliedPhoneVersion = remoteVersion }
+                    self.applyRemoteReminders(rawReminders)
+                } else {
+                    self.pushStateToCloud(debounce: 0)
+                }
+            }
+        }.resume()
+    }
+
+    func pushStateToCloud(debounce: TimeInterval = 0.35) {
+        guard loadCloudConfig() != nil else { return }
+        DispatchQueue.main.async { [weak self] in
+            guard let self = self else { return }
+            self.pendingPushWorkItem?.cancel()
+            let work = DispatchWorkItem { [weak self] in
+                self?.performCloudPush()
+            }
+            self.pendingPushWorkItem = work
+            if debounce <= 0 {
+                work.perform()
+            } else {
+                DispatchQueue.main.asyncAfter(deadline: .now() + debounce, execute: work)
+            }
         }
+    }
+
+    private func performCloudPush() {
+        guard let cfg = loadCloudConfig() else { return }
+        let version: Int = stateQueue.sync {
+            _syncVersion += 1
+            return _syncVersion
+        }
+        let stateData = buildStateJSON(source: "mac", version: version)
+        guard let stateStr = String(data: stateData, encoding: .utf8),
+              let url = URL(string: "https://api.github.com/gists/\(cfg.gistId)") else { return }
+
+        let bodyObj: [String: Any] = [
+            "files": [
+                "tututodo_state.json": ["content": stateStr]
+            ]
+        ]
+        guard let bodyData = try? JSONSerialization.data(withJSONObject: bodyObj) else { return }
+        var req = URLRequest(url: url)
+        req.httpMethod = "PATCH"
+        req.setValue("Bearer \(cfg.token)", forHTTPHeaderField: "Authorization")
+        req.setValue("application/vnd.github+json", forHTTPHeaderField: "Accept")
+        req.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        req.setValue("CustomER-mac", forHTTPHeaderField: "User-Agent")
+        req.httpBody = bodyData
+        req.timeoutInterval = 8.0
+        URLSession.shared.dataTask(with: req) { [weak self] _, response, _ in
+            if let http = response as? HTTPURLResponse,
+               let etag = http.value(forHTTPHeaderField: "ETag") {
+                self?.stateQueue.async { self?._lastEtag = etag }
+            }
+        }.resume()
+    }
+
+    private func applyRemoteReminders(_ rawReminders: [[String: Any]]) {
+        let hasPerItemMeta = rawReminders.contains { $0["updatedAt"] != nil || $0["isDeleted"] != nil }
+        var parsed: [Reminder] = []
+        for item in rawReminders {
+            guard let title = (item["title"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines),
+                  !title.isEmpty else { continue }
+            var r = Reminder(title: title)
+            if let idStr = item["id"] as? String, let uuid = UUID(uuidString: idStr) { r.id = uuid }
+            r.isCompleted = (item["isCompleted"] as? Bool) ?? false
+            r.isStarred = (item["isStarred"] as? Bool) ?? false
+            r.isDeleted = (item["isDeleted"] as? Bool) ?? false
+            if let created = item["createdAt"] as? Double {
+                r.createdAt = Date(timeIntervalSinceReferenceDate: created)
+            }
+            if let updated = item["updatedAt"] as? Double {
+                r.updatedAt = updated
+            }
+            parsed.append(r)
+        }
+        if hasPerItemMeta {
+            ReminderStore.shared.mergeFromRemote(parsed)
+        } else {
+            ReminderStore.shared.replaceFromLegacyRemote(parsed)
+        }
+        NotificationCenter.default.post(name: NSNotification.Name("com.user.tututodo.reload"), object: nil)
     }
 
     private func pullStateFromCloud() {
@@ -202,6 +310,9 @@ final class TutuSyncServer {
 
             let source = (json["source"] as? String) ?? ""
             let version = (json["version"] as? Int) ?? 0
+            self.stateQueue.async {
+                if version > self._syncVersion { self._syncVersion = version }
+            }
             guard source == "phone",
                   let rawReminders = json["reminders"] as? [[String: Any]] else { return }
 
@@ -213,26 +324,8 @@ final class TutuSyncServer {
             }
             guard shouldApply else { return }
 
-            var parsed: [Reminder] = []
-            for item in rawReminders {
-                guard let title = (item["title"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines),
-                      !title.isEmpty else { continue }
-                var r = Reminder(title: title)
-                if let idStr = item["id"] as? String, let uuid = UUID(uuidString: idStr) { r.id = uuid }
-                r.isCompleted = (item["isCompleted"] as? Bool) ?? false
-                r.isStarred = (item["isStarred"] as? Bool) ?? false
-                r.isDeleted = (item["isDeleted"] as? Bool) ?? false
-                if let created = item["createdAt"] as? Double {
-                    r.createdAt = Date(timeIntervalSinceReferenceDate: created)
-                }
-                if let updated = item["updatedAt"] as? Double {
-                    r.updatedAt = updated
-                }
-                parsed.append(r)
-            }
             DispatchQueue.main.async {
-                ReminderStore.shared.mergeFromRemote(parsed)
-                NotificationCenter.default.post(name: NSNotification.Name("com.user.tututodo.reload"), object: nil)
+                self.applyRemoteReminders(rawReminders)
             }
         }.resume()
     }
@@ -313,13 +406,14 @@ final class TutuSyncServer {
     }
 
     private func buildStateJSON(source: String = "mac", version: Int = 1) -> Data {
-        let remindersArray: [[String: Any]] = ReminderStore.shared.allRecords.map { r in
+        // Send only active (non-deleted) reminders so legacy mobile clients (tututodo v1.0.1)
+        // never render soft-deleted tombstones as live tasks.
+        let remindersArray: [[String: Any]] = ReminderStore.shared.items.map { r in
             [
                 "id": r.id.uuidString.uppercased(),
                 "title": r.title,
                 "isCompleted": r.isCompleted,
                 "isStarred": r.isStarred,
-                "isDeleted": r.isDeleted,
                 "createdAt": r.createdAt.timeIntervalSinceReferenceDate,
                 "updatedAt": r.updatedAt
             ]

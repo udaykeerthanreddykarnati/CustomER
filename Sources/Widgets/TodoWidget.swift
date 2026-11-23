@@ -66,6 +66,10 @@ final class ReminderStore {
         }
     }
 
+    var latestUpdatedAt: Double {
+        allRecords.map(\.updatedAt).max() ?? 0
+    }
+
     /// Per-task conflict-safe merge using `updatedAt` timestamps and soft-delete tombstones.
     func mergeFromRemote(_ remoteItems: [Reminder]) {
         var byID: [UUID: Reminder] = Dictionary(uniqueKeysWithValues: allRecords.map { ($0.id, $0) })
@@ -79,6 +83,13 @@ final class ReminderStore {
             }
         }
         allRecords = Array(byID.values).sorted { $0.createdAt < $1.createdAt }
+        save(pushCloud: false)
+    }
+
+    /// Authoritative sync for legacy mobile clients (e.g. tututodo v1.0.1 APK) that omit deleted
+    /// tasks from the array instead of sending `isDeleted` tombstones or per-task `updatedAt`.
+    func replaceFromLegacyRemote(_ remoteItems: [Reminder]) {
+        allRecords = remoteItems.sorted { $0.createdAt < $1.createdAt }
         save(pushCloud: false)
     }
 
