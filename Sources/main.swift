@@ -82,6 +82,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                 bgColor: ThemeManager.shared.currentBgColor,
                 accentColor: ThemeManager.shared.currentAccentColor
             )
+            FolderIconManager.startWatchingDesktop()
         }
 
         // 1. Reminders (tututodo)

@@ -408,41 +408,126 @@ final class ThemeManager {
     }
 }
 
-// MARK: - Desktop Folder Icon Tinter (Strictly Serialized on Main Thread for Carbon Safety)
+// MARK: - Desktop Folder Icon Tinter (Strictly Serialized on Main Thread + Zero-Overhead kqueue Watcher)
 enum FolderIconManager {
     private static var generation: Int = 0
+    private static var isApplying: Bool = false
+    private static var pendingQueue: [URL] = []
+    private static var activeBg: NSColor = ThemeManager.shared.currentBgColor
+    private static var activeAccent: NSColor = ThemeManager.shared.currentAccentColor
+    private static var knownFolderNames: Set<String> = []
+    private static var desktopWatchFD: Int32 = -1
+    private static var desktopWatchSource: DispatchSourceFileSystemObject?
+    private static var desktopWatchDebounce: DispatchWorkItem?
+
+    private static func listDesktopFolders() -> [URL] {
+        let desktop = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Desktop")
+        guard let files = try? FileManager.default.contentsOfDirectory(
+            at: desktop,
+            includingPropertiesForKeys: [.isDirectoryKey],
+            options: [.skipsHiddenFiles]
+        ) else { return [] }
+
+        return files.filter { url in
+            var isDir: ObjCBool = false
+            return FileManager.default.fileExists(atPath: url.path, isDirectory: &isDir)
+                && isDir.boolValue
+                && url.pathExtension != "app"
+        }
+    }
 
     static func updateDesktopFolderIcons(bgColor: NSColor, accentColor: NSColor = ThemeManager.shared.currentAccentColor) {
         DispatchQueue.main.async {
             generation += 1
             let myGen = generation
+            activeBg = bgColor
+            activeAccent = accentColor
 
-            let desktop = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Desktop")
-            guard let files = try? FileManager.default.contentsOfDirectory(
-                at: desktop,
-                includingPropertiesForKeys: [.isDirectoryKey],
-                options: [.skipsHiddenFiles]
-            ) else { return }
+            let folders = listDesktopFolders()
+            knownFolderNames = Set(folders.map { $0.lastPathComponent })
+            pendingQueue = folders
+            isApplying = false
+            drainNext(myGen: myGen)
+        }
+    }
 
-            let folders = files.filter { url in
-                var isDir: ObjCBool = false
-                return FileManager.default.fileExists(atPath: url.path, isDirectory: &isDir)
-                    && isDir.boolValue
-                    && url.pathExtension != "app"
+    static func startWatchingDesktop() {
+        DispatchQueue.main.async {
+            guard desktopWatchSource == nil else { return }
+            if knownFolderNames.isEmpty {
+                knownFolderNames = Set(listDesktopFolders().map { $0.lastPathComponent })
             }
+            let desktop = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Desktop")
+            let fd = open(desktop.path, O_EVTONLY)
+            guard fd >= 0 else { return }
 
-            // Apply one folder per run-loop hop on main thread so NSWorkspace.setIcon
-            // (Carbon Resource Manager) never races and never blocks UI responsiveness.
-            func applyNext(index: Int) {
-                guard myGen == generation, index < folders.count else { return }
-                let url = folders[index]
-                let icon = generateFolderIcon(folderName: url.lastPathComponent, bgColor: bgColor, accentColor: accentColor)
-                NSWorkspace.shared.setIcon(icon, forFile: url.path, options: [])
-                DispatchQueue.main.asyncAfter(deadline: .now() + 0.03) {
-                    applyNext(index: index + 1)
+            desktopWatchFD = fd
+            let source = DispatchSource.makeFileSystemObjectSource(fileDescriptor: fd, eventMask: .write, queue: .main)
+            source.setEventHandler {
+                scheduleDesktopDiffCheck()
+            }
+            source.setCancelHandler {
+                if desktopWatchFD >= 0 {
+                    close(desktopWatchFD)
+                    desktopWatchFD = -1
                 }
             }
-            applyNext(index: 0)
+            desktopWatchSource = source
+            source.resume()
+        }
+    }
+
+    private static func scheduleDesktopDiffCheck() {
+        desktopWatchDebounce?.cancel()
+        let work = DispatchWorkItem {
+            handleDesktopChange()
+        }
+        desktopWatchDebounce = work
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.8, execute: work)
+    }
+
+    private static func handleDesktopChange() {
+        let folders = listDesktopFolders()
+        let currentNames = Set(folders.map { $0.lastPathComponent })
+        let added = folders.filter { !knownFolderNames.contains($0.lastPathComponent) }
+        knownFolderNames = currentNames
+        guard !added.isEmpty else { return }
+
+        if !isApplying {
+            activeBg = ThemeManager.shared.currentBgColor
+            activeAccent = ThemeManager.shared.currentAccentColor
+        }
+        let existingPaths = Set(pendingQueue.map(\.path))
+        for url in added where !existingPaths.contains(url.path) {
+            pendingQueue.append(url)
+        }
+        if !isApplying {
+            drainNext(myGen: generation)
+        }
+    }
+
+    // Apply one folder per run-loop hop on main thread inside autoreleasepool so
+    // NSWorkspace.setIcon (Carbon Resource Manager) never races and temporary bitmaps free immediately.
+    private static func drainNext(myGen: Int) {
+        guard myGen == generation else { return }
+        guard !pendingQueue.isEmpty else {
+            isApplying = false
+            return
+        }
+        isApplying = true
+        let url = pendingQueue.removeFirst()
+        autoreleasepool {
+            if FileManager.default.fileExists(atPath: url.path) {
+                let icon = generateFolderIcon(folderName: url.lastPathComponent, bgColor: activeBg, accentColor: activeAccent)
+                NSWorkspace.shared.setIcon(icon, forFile: url.path, options: [])
+            }
+        }
+        if pendingQueue.isEmpty {
+            isApplying = false
+        } else {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.03) {
+                drainNext(myGen: myGen)
+            }
         }
     }
 
