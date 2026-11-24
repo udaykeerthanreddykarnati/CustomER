@@ -220,6 +220,10 @@ final class ShelfItemView: NSView, NSDraggingSource {
     }
 }
 
+private final class FirstMouseContainerView: NSView {
+    override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
+}
+
 // MARK: - Non-Activating Top Notch Panel (Responds on First Click, Never Steals App Focus)
 class NotchWidgetWindow: NSPanel {
     override var canBecomeKey: Bool { false }
@@ -237,7 +241,7 @@ class NotchWidgetView: NSView {
         case open          // Full expanded CustomER-themed panel (Home & Shelf tabs)
     }
 
-    private enum NotchTab { case home, shelf }
+    private enum NotchTab { case home, pomo, shelf }
 
     private var state: NotchState = .idle
     private var activeTab: NotchTab = .home
@@ -248,7 +252,7 @@ class NotchWidgetView: NSView {
     // Initial compact idle window size — NSWindow shrinks/grows dynamically with notch state
     // so collapsed states NEVER block clicks over apps below the menu bar.
     static func idleWindowSize(for geom: NotchGeometry) -> NSSize {
-        NSSize(width: geom.hardwareWidth + 16, height: geom.hardwareHeight)
+        NSSize(width: geom.hardwareWidth + 72, height: geom.hardwareHeight)
     }
 
     private let openWidth: CGFloat = 570
@@ -259,23 +263,26 @@ class NotchWidgetView: NSView {
     private let strokeLayer = CAShapeLayer()
     private let cameraCapLayer = CAShapeLayer()
     private let contentMaskLayer = CAShapeLayer()
-    private let contentHost = NSView()
+    private let contentHost = FirstMouseContainerView()
 
     // Compact Live-Activity / Sneak views (flanking physical notch)
     private let compactArtView = NSImageView()
     private let compactEqView = NotchEqualizerView()
+    private let compactPomoTag = NSTextField()
+    private let compactPomoTime = NSTextField()
     private let sneakLabel = NSTextField()
 
     // Expanded header (flanking physical camera cap)
-    private let headerContainer = NSView()
+    private let headerContainer = FirstMouseContainerView()
     private let homeTabBtn = NSButton()
+    private let pomoTabBtn = NSButton()
     private let shelfTabBtn = NSButton()
     private let batteryBadge = NSTextField()
     private let pinBtn = NSButton()
     private let themeBtn = NSButton()
 
     // Tab 1: Home (Left: Media Player, Right: Tasks & Today)
-    private let homeContainer = NSView()
+    private let homeContainer = FirstMouseContainerView()
     private let mediaCard = NSView()
     private let artView = NSImageView()
     private let playerSourceBadge = NSTextField()
@@ -296,8 +303,26 @@ class NotchWidgetView: NSView {
     private let glanceTasksContainer = NSView()
     private let glanceEventsLabel = NSTextField()
 
-    // Tab 2: Shelf (Drag & Drop File Staging + AirDrop)
-    private let shelfContainer = NSView()
+    // Tab 2: Minimal Pomodoro Focus Timer
+    private let pomoContainer = FirstMouseContainerView()
+    private let pomoCard = NSView()
+    private let pomoModeLabel = NSTextField()
+    private let pomoTimeLabel = NSTextField()
+    private let pomoPreset25Btn = NSButton()
+    private let pomoPreset50Btn = NSButton()
+    private let pomoPreset5Btn = NSButton()
+    private let pomoStartBtn = NSButton()
+    private let pomoResetBtn = NSButton()
+
+    private var pomoDurationSec: Int = 25 * 60
+    private var pomoRemainingSec: Int = 25 * 60
+    private var pomoIsBreak: Bool = false
+    private var pomoRunning: Bool = false
+    private var pomoEndDate: Date?
+    private var pomoTimer: Timer?
+
+    // Tab 3: Shelf (Drag & Drop File Staging + AirDrop)
+    private let shelfContainer = FirstMouseContainerView()
     private let shelfDropBox = NSView()
     private let shelfEmptyLabel = NSTextField()
     private let shelfScroll = NSScrollView()
@@ -323,6 +348,7 @@ class NotchWidgetView: NSView {
     private var hoverOpenWorkItem: DispatchWorkItem?
     private var hoverCloseWorkItem: DispatchWorkItem?
     private var sneakDismissWorkItem: DispatchWorkItem?
+    private var lastOpenedAt: Date = .distantPast
     private var currentTrackingArea: NSTrackingArea?
     private var currentNotchRect: NSRect = .zero
     private var powerRunLoopSource: CFRunLoopSource?
@@ -345,6 +371,7 @@ class NotchWidgetView: NSView {
     deinit {
         localTickTimer?.invalidate()
         openWatchdogTimer?.invalidate()
+        pomoTimer?.invalidate()
         artTask?.cancel()
         hoverOpenWorkItem?.cancel()
         hoverCloseWorkItem?.cancel()
@@ -382,6 +409,7 @@ class NotchWidgetView: NSView {
         buildCompactWings()
         buildExpandedHeader()
         buildHomeTab()
+        buildPomoTab()
         buildShelfTab()
         applyThemeColors()
     }
@@ -396,6 +424,27 @@ class NotchWidgetView: NSView {
         compactEqView.barColor = kAccent
         contentHost.addSubview(compactEqView)
 
+        let tagCell = CenteredTextFieldCell(textCell: "FOC")
+        tagCell.alignment = .center
+        tagCell.font = dynamicFont(size: 9, weight: .bold)
+        compactPomoTag.cell = tagCell
+        compactPomoTag.font = dynamicFont(size: 9, weight: .bold)
+        compactPomoTag.alignment = .center
+        compactPomoTag.isEditable = false; compactPomoTag.isBordered = false
+        compactPomoTag.drawsBackground = false; compactPomoTag.backgroundColor = .clear
+        contentHost.addSubview(compactPomoTag)
+
+        let timeCell = CenteredTextFieldCell(textCell: "25:00")
+        timeCell.alignment = .center
+        timeCell.font = NSFont.monospacedDigitSystemFont(ofSize: 10.5, weight: .bold)
+        compactPomoTime.cell = timeCell
+        compactPomoTime.font = NSFont.monospacedDigitSystemFont(ofSize: 10.5, weight: .bold)
+        compactPomoTime.textColor = .white
+        compactPomoTime.alignment = .center
+        compactPomoTime.isEditable = false; compactPomoTime.isBordered = false
+        compactPomoTime.drawsBackground = false; compactPomoTime.backgroundColor = .clear
+        contentHost.addSubview(compactPomoTime)
+
         sneakLabel.font = dynamicFont(size: 10.5, weight: .bold)
         sneakLabel.textColor = .white
         sneakLabel.alignment = .center
@@ -408,6 +457,7 @@ class NotchWidgetView: NSView {
         contentHost.addSubview(headerContainer)
 
         setupTabBtn(homeTabBtn, title: "HOME", action: #selector(selectHomeTab))
+        setupTabBtn(pomoTabBtn, title: "POMO", action: #selector(selectPomoTab))
         setupTabBtn(shelfTabBtn, title: "SHELF", action: #selector(selectShelfTab))
 
         let batCell = CenteredTextFieldCell(textCell: "")
@@ -517,6 +567,44 @@ class NotchWidgetView: NSView {
         mediaCard.addSubview(btn)
     }
 
+    private func buildPomoTab() {
+        contentHost.addSubview(pomoContainer)
+
+        pomoCard.wantsLayer = true
+        pomoContainer.addSubview(pomoCard)
+
+        pomoModeLabel.font = dynamicFont(size: 9.5, weight: .bold)
+        pomoModeLabel.isEditable = false; pomoModeLabel.isBordered = false
+        pomoModeLabel.drawsBackground = false; pomoModeLabel.backgroundColor = .clear
+        pomoCard.addSubview(pomoModeLabel)
+
+        let timerCell = CenteredTextFieldCell(textCell: "25:00")
+        timerCell.alignment = .left
+        timerCell.font = NSFont.monospacedDigitSystemFont(ofSize: 36, weight: .bold)
+        pomoTimeLabel.cell = timerCell
+        pomoTimeLabel.font = NSFont.monospacedDigitSystemFont(ofSize: 36, weight: .bold)
+        pomoTimeLabel.alignment = .left
+        pomoTimeLabel.isEditable = false; pomoTimeLabel.isBordered = false
+        pomoTimeLabel.drawsBackground = false; pomoTimeLabel.backgroundColor = .clear
+        pomoCard.addSubview(pomoTimeLabel)
+
+        setupPomoBtn(pomoPreset25Btn, title: "25m", fontSize: 10, action: #selector(selectPomo25))
+        setupPomoBtn(pomoPreset50Btn, title: "50m", fontSize: 10, action: #selector(selectPomo50))
+        setupPomoBtn(pomoPreset5Btn, title: "5m", fontSize: 10, action: #selector(selectPomo5))
+        setupPomoBtn(pomoStartBtn, title: "START", fontSize: 11, action: #selector(togglePomo))
+        setupPomoBtn(pomoResetBtn, title: "RESET", fontSize: 10, action: #selector(resetPomo))
+
+        updatePomoUI()
+    }
+
+    private func setupPomoBtn(_ btn: NSButton, title: String, fontSize: CGFloat, action: Selector) {
+        btn.title = title
+        btn.font = dynamicFont(size: fontSize, weight: .bold)
+        btn.isBordered = false; btn.wantsLayer = true
+        btn.target = self; btn.action = action
+        pomoCard.addSubview(btn)
+    }
+
     private func buildShelfTab() {
         contentHost.addSubview(shelfContainer)
 
@@ -549,19 +637,24 @@ class NotchWidgetView: NSView {
         shelfContainer.addSubview(clearShelfBtn)
     }
 
+    private var collapsedTargetState: NotchState {
+        ((mediaSource != .none && isPlaying) || pomoRunning) ? .liveActivity : .idle
+    }
+
     // MARK: - Notch Rect Calculations, Dynamic Window Sizing & Layout
     private func windowSize(for targetState: NotchState) -> NSSize {
         let hw = geometry.hardwareWidth
         let hh = geometry.hardwareHeight
         switch targetState {
         case .idle:
-            // Strictly physical notch + 8px top concave ears; 0px below menu bar
-            return NSSize(width: hw + 16, height: hh)
+            // Strictly inside menu bar: 36px clickable strip flanking physical notch, 0px below menu bar
+            return NSSize(width: hw + 72, height: hh)
         case .liveActivity:
             // Strictly inside the menu bar strip; 0px below menu bar
-            return NSSize(width: hw + 86, height: hh)
+            let liveW = pomoRunning ? (hw + 112) : (hw + 86)
+            return NSSize(width: liveW, height: hh)
         case .sneak:
-            // Passive track-change banner (ignoresMouseEvents = true while shown)
+            // Passive track/timer banner (ignoresMouseEvents = true while shown)
             return NSSize(width: max(hw + 140, 340) + 4, height: hh + 30)
         case .open:
             // Small outer margin so thick theme borders never clip on left/right/bottom
@@ -591,7 +684,7 @@ class NotchWidgetView: NSView {
             let w = hw + 16 // includes 8px top concave ears flush with hardware notch
             return (NSRect(x: midX - w / 2, y: topY - hh, width: w, height: hh), 8, 10)
         case .liveActivity:
-            let w = hw + 86 // hardware notch + left art wing + right eq wing + ears
+            let w = pomoRunning ? (hw + 112) : (hw + 86) // hardware notch + wings + ears
             return (NSRect(x: midX - w / 2, y: topY - hh, width: w, height: hh), 9, 12)
         case .sneak:
             let w = max(hw + 140, 340)
@@ -603,7 +696,11 @@ class NotchWidgetView: NSView {
     }
 
     private func applyState(_ newState: NotchState, animated: Bool) {
+        let previousState = state
         state = newState
+        if newState == .open && previousState != .open {
+            lastOpenedAt = Date()
+        }
         transitionGen += 1
         let myGen = transitionGen
 
@@ -730,25 +827,36 @@ class NotchWidgetView: NSView {
         layoutSubviewsForCurrentState()
         updateTrackingRegion()
 
-        let showWings = (newState == .liveActivity || newState == .sneak) && mediaSource != .none
+        let inCompactWing = (newState == .liveActivity || newState == .sneak)
+        let hasPlayingMedia = (mediaSource != .none && isPlaying)
+        let showMediaArt = inCompactWing && hasPlayingMedia
+        let showMediaEq  = inCompactWing && hasPlayingMedia && !pomoRunning
+        let showPomoTag  = inCompactWing && pomoRunning && !hasPlayingMedia
+        let showPomoTime = inCompactWing && pomoRunning
         let showSneak = (newState == .sneak)
         let showOpen  = (newState == .open)
 
         NSAnimationContext.runAnimationGroup { ctx in
             ctx.duration = animated ? 0.16 : 0.0
-            compactArtView.animator().alphaValue = showWings ? 1 : 0
-            compactEqView.animator().alphaValue  = showWings ? 1 : 0
-            sneakLabel.animator().alphaValue     = showSneak ? 1 : 0
+            compactArtView.animator().alphaValue  = showMediaArt ? 1 : 0
+            compactEqView.animator().alphaValue   = showMediaEq ? 1 : 0
+            compactPomoTag.animator().alphaValue  = showPomoTag ? 1 : 0
+            compactPomoTime.animator().alphaValue = showPomoTime ? 1 : 0
+            sneakLabel.animator().alphaValue      = showSneak ? 1 : 0
             headerContainer.animator().alphaValue = showOpen ? 1 : 0
             homeContainer.animator().alphaValue   = (showOpen && activeTab == .home) ? 1 : 0
+            pomoContainer.animator().alphaValue   = (showOpen && activeTab == .pomo) ? 1 : 0
             shelfContainer.animator().alphaValue  = (showOpen && activeTab == .shelf) ? 1 : 0
         }
 
-        compactArtView.isHidden  = !showWings
-        compactEqView.isHidden   = !showWings
+        compactArtView.isHidden  = !showMediaArt
+        compactEqView.isHidden   = !showMediaEq
+        compactPomoTag.isHidden  = !showPomoTag
+        compactPomoTime.isHidden = !showPomoTime
         sneakLabel.isHidden      = !showSneak
         headerContainer.isHidden = !showOpen
         homeContainer.isHidden   = !(showOpen && activeTab == .home)
+        pomoContainer.isHidden   = !(showOpen && activeTab == .pomo)
         shelfContainer.isHidden  = !(showOpen && activeTab == .shelf)
 
         if showOpen {
@@ -834,9 +942,11 @@ class NotchWidgetView: NSView {
         // 1. Compact wings flanking the physical notch cutout
         let artDim: CGFloat = min(22, hh - 8)
         let wingY = topY - hh + (hh - artDim) / 2
-        compactArtView.frame = NSRect(x: midX - hw / 2 - artDim - 10, y: wingY, width: artDim, height: artDim)
-        compactEqView.frame  = NSRect(x: midX + hw / 2 + 10, y: topY - hh + (hh - 14) / 2, width: 24, height: 14)
-        sneakLabel.frame     = NSRect(x: midX - 145, y: topY - hh - 22, width: 290, height: 18)
+        compactArtView.frame  = NSRect(x: midX - hw / 2 - artDim - 10, y: wingY, width: artDim, height: artDim)
+        compactEqView.frame   = NSRect(x: midX + hw / 2 + 10, y: topY - hh + (hh - 14) / 2, width: 24, height: 14)
+        compactPomoTag.frame  = NSRect(x: midX - hw / 2 - 48, y: topY - hh + (hh - 16) / 2, width: 40, height: 16)
+        compactPomoTime.frame = NSRect(x: midX + hw / 2 + 8, y: topY - hh + (hh - 16) / 2, width: 42, height: 16)
+        sneakLabel.frame      = NSRect(x: midX - 145, y: topY - hh - 22, width: 290, height: 18)
 
         guard state == .open || bounds.height >= openHeight else { return }
 
@@ -850,8 +960,9 @@ class NotchWidgetView: NSView {
         let headerH: CGFloat = max(28, hh)
         headerContainer.frame = NSRect(x: innerX, y: topY - headerH - 4, width: innerW, height: headerH)
         let hBtnY: CGFloat = (headerH - 20) / 2
-        homeTabBtn.frame  = NSRect(x: 0, y: hBtnY, width: 56, height: 20)
-        shelfTabBtn.frame = NSRect(x: 62, y: hBtnY, width: 78, height: 20)
+        homeTabBtn.frame  = NSRect(x: 0, y: hBtnY, width: 46, height: 20)
+        pomoTabBtn.frame  = NSRect(x: 50, y: hBtnY, width: 48, height: 20)
+        shelfTabBtn.frame = NSRect(x: 102, y: hBtnY, width: 58, height: 20)
 
         themeBtn.frame     = NSRect(x: innerW - 50, y: hBtnY, width: 50, height: 20)
         pinBtn.frame       = NSRect(x: innerW - 90, y: hBtnY, width: 34, height: 20)
@@ -892,7 +1003,25 @@ class NotchWidgetView: NSView {
         glanceTasksContainer.frame = NSRect(x: 8, y: 24, width: glanceW - 16, height: bodyH - 50)
         glanceEventsLabel.frame    = NSRect(x: 10, y: 6, width: glanceW - 20, height: 14)
 
-        // 4. Shelf Tab layout
+        // 4. Pomodoro Tab layout
+        pomoContainer.frame = NSRect(x: innerX, y: bodyY, width: innerW, height: bodyH)
+        pomoCard.frame = pomoContainer.bounds
+        pomoModeLabel.frame = NSRect(x: 18, y: bodyH - 30, width: 140, height: 16)
+        pomoTimeLabel.frame = NSRect(x: 16, y: 20, width: 196, height: bodyH - 54)
+        let pRightX: CGFloat = 226
+        let pRightW = max(120, innerW - pRightX - 18)
+        let pGap: CGFloat = 8
+        let presetW = (pRightW - pGap * 2) / 3
+        let presetY = bodyH - 52
+        pomoPreset25Btn.frame = NSRect(x: pRightX, y: presetY, width: presetW, height: 28)
+        pomoPreset50Btn.frame = NSRect(x: pRightX + presetW + pGap, y: presetY, width: presetW, height: 28)
+        pomoPreset5Btn.frame  = NSRect(x: pRightX + (presetW + pGap) * 2, y: presetY, width: presetW, height: 28)
+        let startW = floor((pRightW - pGap) * 0.62)
+        let resetW = pRightW - pGap - startW
+        pomoStartBtn.frame = NSRect(x: pRightX, y: 22, width: startW, height: 34)
+        pomoResetBtn.frame = NSRect(x: pRightX + startW + pGap, y: 22, width: resetW, height: 34)
+
+        // 5. Shelf Tab layout
         shelfContainer.frame = NSRect(x: innerX, y: bodyY, width: innerW, height: bodyH)
         let actionW: CGFloat = 96
         shelfDropBox.frame   = NSRect(x: 0, y: 0, width: innerW - actionW - 10, height: bodyH)
@@ -926,9 +1055,12 @@ class NotchWidgetView: NSView {
 
         compactEqView.barColor = (p == .minimal) ? kBg : kAccent
         openEqView.barColor = kAccent
+        compactPomoTag.textColor = kAccent
+        compactPomoTime.textColor = .white
 
         // Header buttons
         styleHeaderButton(homeTabBtn, active: activeTab == .home, onAccent: onAccent)
+        styleHeaderButton(pomoTabBtn, active: activeTab == .pomo, onAccent: onAccent)
         styleHeaderButton(shelfTabBtn, active: activeTab == .shelf, onAccent: onAccent)
         styleHeaderButton(pinBtn, active: isPinned, onAccent: onAccent)
         styleHeaderButton(themeBtn, active: false, onAccent: onAccent)
@@ -940,12 +1072,26 @@ class NotchWidgetView: NSView {
         batteryBadge.layer?.borderColor = kBorder.cgColor
 
         // Cards
-        for card in [mediaCard, glanceCard, shelfDropBox] {
+        for card in [mediaCard, glanceCard, pomoCard, shelfDropBox] {
             card.layer?.backgroundColor = kSurface.cgColor
             card.layer?.borderWidth = kBorderWidth
             card.layer?.borderColor = kBorder.cgColor
             card.layer?.cornerRadius = kRadius / 2
         }
+
+        // Pomodoro colors
+        pomoModeLabel.textColor = kAccent
+        pomoModeLabel.font = dynamicFont(size: 9.5, weight: .bold)
+        pomoTimeLabel.textColor = kText
+        styleHeaderButton(pomoPreset25Btn, active: !pomoIsBreak && pomoDurationSec == 25 * 60, onAccent: onAccent)
+        styleHeaderButton(pomoPreset50Btn, active: !pomoIsBreak && pomoDurationSec == 50 * 60, onAccent: onAccent)
+        styleHeaderButton(pomoPreset5Btn, active: pomoIsBreak && pomoDurationSec == 5 * 60, onAccent: onAccent)
+        pomoStartBtn.font = dynamicFont(size: 11, weight: .bold)
+        pomoStartBtn.layer?.borderWidth = kBorderWidth
+        pomoStartBtn.layer?.borderColor = kBorder.cgColor
+        pomoStartBtn.layer?.backgroundColor = kAccent.cgColor
+        pomoStartBtn.contentTintColor = onAccent
+        styleHeaderButton(pomoResetBtn, active: false, onAccent: onAccent)
 
         artView.layer?.borderWidth = kBorderWidth
         artView.layer?.borderColor = kBorder.cgColor
@@ -1011,6 +1157,9 @@ class NotchWidgetView: NSView {
 
     override func hitTest(_ point: NSPoint) -> NSView? {
         let local = convert(point, from: superview)
+        if state == .idle || state == .liveActivity {
+            return bounds.contains(local) ? self : nil
+        }
         guard currentNotchRect.contains(local) else { return nil }
         return super.hitTest(point)
     }
@@ -1040,7 +1189,7 @@ class NotchWidgetView: NSView {
             self.applyState(.open, animated: true)
         }
         hoverOpenWorkItem = item
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.14, execute: item)
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.24, execute: item)
     }
 
     override func mouseExited(with event: NSEvent) {
@@ -1053,25 +1202,27 @@ class NotchWidgetView: NSView {
         hoverCloseWorkItem?.cancel()
         let item = DispatchWorkItem { [weak self] in
             guard let self = self, !self.isPinned, !self.isDraggingFileOver else { return }
-            let collapsedTarget: NotchState = (self.mediaSource != .none && self.isPlaying) ? .liveActivity : .idle
-            self.applyState(collapsedTarget, animated: true)
+            self.applyState(self.collapsedTargetState, animated: true)
         }
         hoverCloseWorkItem = item
         DispatchQueue.main.asyncAfter(deadline: .now() + delay, execute: item)
     }
 
     override func mouseDown(with event: NSEvent) {
+        hoverOpenWorkItem?.cancel()
+        sneakDismissWorkItem?.cancel()
+        if state != .open {
+            applyState(.open, animated: true)
+            return
+        }
         let pt = convert(event.locationInWindow, from: nil)
         let hit = super.hitTest(pt)
         if hit is NSButton || hit is NotchProgressView || hit is ShelfItemView {
             super.mouseDown(with: event)
             return
         }
-        if state != .open {
-            applyState(.open, animated: true)
-        } else if !isPinned {
-            let target: NotchState = (mediaSource != .none && isPlaying) ? .liveActivity : .idle
-            applyState(target, animated: true)
+        if !isPinned && Date().timeIntervalSince(lastOpenedAt) > 0.45 {
+            applyState(collapsedTargetState, animated: true)
         }
     }
 
@@ -1088,6 +1239,7 @@ class NotchWidgetView: NSView {
             applyState(.open, animated: true)
         } else {
             homeContainer.isHidden = true
+            pomoContainer.isHidden = true
             shelfContainer.isHidden = false
             shelfContainer.alphaValue = 1
         }
@@ -1163,9 +1315,15 @@ class NotchWidgetView: NSView {
         rebuildShelfCards()
     }
 
-    // MARK: - Header Actions
+    // MARK: - Header Actions & Pomodoro Timer
     @objc private func selectHomeTab() {
         activeTab = .home
+        applyThemeColors()
+        applyState(.open, animated: false)
+    }
+
+    @objc private func selectPomoTab() {
+        activeTab = .pomo
         applyThemeColors()
         applyState(.open, animated: false)
     }
@@ -1174,6 +1332,105 @@ class NotchWidgetView: NSView {
         activeTab = .shelf
         applyThemeColors()
         applyState(.open, animated: false)
+    }
+
+    @objc private func selectPomo25() { setPomoPreset(minutes: 25, isBreak: false) }
+    @objc private func selectPomo50() { setPomoPreset(minutes: 50, isBreak: false) }
+    @objc private func selectPomo5()  { setPomoPreset(minutes: 5, isBreak: true) }
+
+    private func setPomoPreset(minutes: Int, isBreak: Bool) {
+        pomoTimer?.invalidate()
+        pomoTimer = nil
+        pomoRunning = false
+        pomoEndDate = nil
+        pomoIsBreak = isBreak
+        pomoDurationSec = minutes * 60
+        pomoRemainingSec = pomoDurationSec
+        updatePomoUI()
+        applyThemeColors()
+    }
+
+    @objc private func togglePomo() {
+        if pomoRunning {
+            if let end = pomoEndDate {
+                pomoRemainingSec = max(0, Int(ceil(end.timeIntervalSinceNow)))
+            }
+            pomoTimer?.invalidate()
+            pomoTimer = nil
+            pomoRunning = false
+            pomoEndDate = nil
+        } else {
+            if pomoRemainingSec <= 0 { pomoRemainingSec = pomoDurationSec }
+            pomoRunning = true
+            pomoEndDate = Date().addingTimeInterval(TimeInterval(pomoRemainingSec))
+            pomoTimer?.invalidate()
+            pomoTimer = Timer.scheduledTimer(withTimeInterval: 1.0, repeats: true) { [weak self] _ in
+                self?.tickPomo()
+            }
+        }
+        updatePomoUI()
+    }
+
+    @objc private func resetPomo() {
+        pomoTimer?.invalidate()
+        pomoTimer = nil
+        pomoRunning = false
+        pomoEndDate = nil
+        pomoRemainingSec = pomoDurationSec
+        updatePomoUI()
+    }
+
+    private func tickPomo() {
+        let rem = max(0, Int(ceil((pomoEndDate ?? Date()).timeIntervalSinceNow)))
+        pomoRemainingSec = rem
+        updatePomoUI()
+        if rem == 0 {
+            completePomo()
+        }
+    }
+
+    private func completePomo() {
+        pomoTimer?.invalidate()
+        pomoTimer = nil
+        pomoRunning = false
+        pomoEndDate = nil
+        NSSound(named: NSSound.Name("Glass"))?.play()
+
+        let wasBreak = pomoIsBreak
+        if !wasBreak {
+            pomoIsBreak = true
+            pomoDurationSec = 5 * 60
+            pomoRemainingSec = 5 * 60
+        } else {
+            pomoIsBreak = false
+            pomoDurationSec = 25 * 60
+            pomoRemainingSec = 25 * 60
+        }
+        let bannerText = wasBreak ? "BREAK DONE - READY TO FOCUS" : "FOCUS DONE - 5m BREAK READY"
+        updatePomoUI()
+        applyThemeColors()
+
+        if state != .open {
+            sneakLabel.stringValue = bannerText
+            applyState(.sneak, animated: true)
+            sneakDismissWorkItem?.cancel()
+            let dismiss = DispatchWorkItem { [weak self] in
+                guard let self = self, self.state == .sneak else { return }
+                self.applyState(self.collapsedTargetState, animated: true)
+            }
+            sneakDismissWorkItem = dismiss
+            DispatchQueue.main.asyncAfter(deadline: .now() + 3.0, execute: dismiss)
+        }
+    }
+
+    private func updatePomoUI() {
+        let formatted = String(format: "%02d:%02d", pomoRemainingSec / 60, pomoRemainingSec % 60)
+        pomoTimeLabel.stringValue = formatted
+        compactPomoTime.stringValue = formatted
+        pomoModeLabel.stringValue = pomoIsBreak ? "BREAK" : "FOCUS"
+        compactPomoTag.stringValue = pomoIsBreak ? "BRK" : "FOC"
+        pomoStartBtn.title = pomoRunning ? "PAUSE" : "START"
+        pomoTabBtn.title = pomoRunning ? formatted : "POMO"
     }
 
     @objc private func togglePin() {
@@ -1412,7 +1669,7 @@ class NotchWidgetView: NSView {
         updateLocalTicker()
         setMediaControlsHidden(true)
         if state == .liveActivity || state == .sneak {
-            applyState(.idle, animated: true)
+            applyState(collapsedTargetState, animated: true)
         }
     }
 
@@ -1475,12 +1732,12 @@ class NotchWidgetView: NSView {
                 sneakDismissWorkItem?.cancel()
                 let dismiss = DispatchWorkItem { [weak self] in
                     guard let self = self, self.state == .sneak else { return }
-                    self.applyState(self.isPlaying ? .liveActivity : .idle, animated: true)
+                    self.applyState(self.collapsedTargetState, animated: true)
                 }
                 sneakDismissWorkItem = dismiss
                 DispatchQueue.main.asyncAfter(deadline: .now() + 2.4, execute: dismiss)
             } else {
-                let desired: NotchState = playing ? .liveActivity : .idle
+                let desired = collapsedTargetState
                 if state != desired {
                     applyState(desired, animated: true)
                 }
