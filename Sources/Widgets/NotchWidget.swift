@@ -712,7 +712,9 @@ class NotchWidgetView: NSView {
         let targetWinFrame = windowFrame(for: newState)
         var translatedStartPath: CGPath? = shapeLayer.presentation()?.path ?? shapeLayer.path
         let startFill: CGColor = shapeLayer.presentation()?.fillColor ?? shapeLayer.fillColor ?? NSColor.black.cgColor
+        let startStroke: CGColor = strokeLayer.presentation()?.strokeColor ?? strokeLayer.strokeColor ?? NSColor.clear.cgColor
         var needsDelayedShrink = false
+        var shrinkDelay: TimeInterval = 0.45
 
         if let w = window {
             let oldFrame = w.frame
@@ -782,8 +784,9 @@ class NotchWidgetView: NSView {
 
         CATransaction.begin()
         CATransaction.setDisableActions(true)
-        // Keep a near-invisible alpha in the collapsed strip so WindowServer routes clicks cleanly
-        layer?.backgroundColor = (newState == .idle || newState == .liveActivity)
+        // Keep a near-invisible alpha when settled in collapsed strip so WindowServer routes clicks cleanly,
+        // but stay clear during animated collapse so the closing spring isn't backed by a faint tint.
+        layer?.backgroundColor = ((newState == .idle || newState == .liveActivity) && !needsDelayedShrink)
             ? NSColor(white: 0, alpha: 0.004).cgColor
             : NSColor.clear.cgColor
         contentHost.frame = bounds
@@ -794,12 +797,12 @@ class NotchWidgetView: NSView {
         strokeLayer.lineWidth = (newState == .open) ? max(1.0, kBorderWidth) : 1.0
         contentMaskLayer.path = newPath
 
-        // Show subtle black hardware camera cap only when expanded on a light/colored theme
+        // Show subtle black hardware camera cap when expanded (and while collapsing) so light themes stay clean
         let capW = geometry.hardwareWidth + 12
         let capH = geometry.hardwareHeight
         let capRect = NSRect(x: bounds.width / 2 - capW / 2, y: bounds.height - capH, width: capW, height: capH)
         cameraCapLayer.path = NotchGeometry.makeNotchPath(in: capRect, topEarRadius: 7, bottomRadius: 10)
-        cameraCapLayer.isHidden = (newState != .open || !geometry.hasPhysicalNotch)
+        cameraCapLayer.isHidden = (!geometry.hasPhysicalNotch || (newState != .open && !needsDelayedShrink))
 
         if animated, let fromPath = translatedStartPath {
             let pathAnim = CASpringAnimation(keyPath: "path")
@@ -807,14 +810,17 @@ class NotchWidgetView: NSView {
             pathAnim.toValue = newPath
             if needsDelayedShrink {
                 pathAnim.damping = 30
-                pathAnim.stiffness = 460
-                pathAnim.mass = 0.70
+                pathAnim.stiffness = 340
+                pathAnim.mass = 0.85
             } else {
                 pathAnim.damping = 24
                 pathAnim.stiffness = 340
                 pathAnim.mass = 0.85
             }
             pathAnim.duration = pathAnim.settlingDuration
+            if needsDelayedShrink {
+                shrinkDelay = min(max(pathAnim.settlingDuration, 0.38), 0.65)
+            }
 
             shapeLayer.add(pathAnim, forKey: "notchPathMorph")
             strokeLayer.add(pathAnim, forKey: "notchStrokeMorph")
@@ -823,8 +829,14 @@ class NotchWidgetView: NSView {
             let fillAnim = CABasicAnimation(keyPath: "fillColor")
             fillAnim.fromValue = startFill
             fillAnim.toValue = targetFill
-            fillAnim.duration = 0.20
+            fillAnim.duration = 0.22
             shapeLayer.add(fillAnim, forKey: "notchFill")
+
+            let strokeAnim = CABasicAnimation(keyPath: "strokeColor")
+            strokeAnim.fromValue = startStroke
+            strokeAnim.toValue = targetStroke
+            strokeAnim.duration = 0.22
+            strokeLayer.add(strokeAnim, forKey: "notchStrokeColor")
         } else {
             shapeLayer.removeAllAnimations()
             strokeLayer.removeAllAnimations()
@@ -844,29 +856,67 @@ class NotchWidgetView: NSView {
         let showPomoTime = inCompactWing && pomoRunning
         let showSneak = (newState == .sneak)
         let showOpen  = (newState == .open)
+        let showHome  = showOpen && activeTab == .home
+        let showPomo  = showOpen && activeTab == .pomo
+        let showShelf = showOpen && activeTab == .shelf
 
-        NSAnimationContext.runAnimationGroup { ctx in
-            ctx.duration = animated ? 0.16 : 0.0
-            compactArtView.animator().alphaValue  = showMediaArt ? 1 : 0
-            compactEqView.animator().alphaValue   = showMediaEq ? 1 : 0
-            compactPomoTag.animator().alphaValue  = showPomoTag ? 1 : 0
-            compactPomoTime.animator().alphaValue = showPomoTime ? 1 : 0
-            sneakLabel.animator().alphaValue      = showSneak ? 1 : 0
-            headerContainer.animator().alphaValue = showOpen ? 1 : 0
-            homeContainer.animator().alphaValue   = (showOpen && activeTab == .home) ? 1 : 0
-            pomoContainer.animator().alphaValue   = (showOpen && activeTab == .pomo) ? 1 : 0
-            shelfContainer.animator().alphaValue  = (showOpen && activeTab == .shelf) ? 1 : 0
+        // Unhide incoming views immediately, and let outgoing views fade out before hiding
+        if showMediaArt { compactArtView.isHidden = false }
+        if showMediaEq  { compactEqView.isHidden = false }
+        if showPomoTag  { compactPomoTag.isHidden = false }
+        if showPomoTime { compactPomoTime.isHidden = false }
+        if showSneak    { sneakLabel.isHidden = false }
+        if showOpen     { headerContainer.isHidden = false }
+        if showHome     { homeContainer.isHidden = false }
+        if showPomo     { pomoContainer.isHidden = false }
+        if showShelf    { shelfContainer.isHidden = false }
+
+        if animated {
+            NSAnimationContext.runAnimationGroup({ ctx in
+                ctx.duration = showOpen ? 0.20 : 0.16
+                ctx.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
+                compactArtView.animator().alphaValue  = showMediaArt ? 1 : 0
+                compactEqView.animator().alphaValue   = showMediaEq ? 1 : 0
+                compactPomoTag.animator().alphaValue  = showPomoTag ? 1 : 0
+                compactPomoTime.animator().alphaValue = showPomoTime ? 1 : 0
+                sneakLabel.animator().alphaValue      = showSneak ? 1 : 0
+                headerContainer.animator().alphaValue = showOpen ? 1 : 0
+                homeContainer.animator().alphaValue   = showHome ? 1 : 0
+                pomoContainer.animator().alphaValue   = showPomo ? 1 : 0
+                shelfContainer.animator().alphaValue  = showShelf ? 1 : 0
+            }, completionHandler: { [weak self] in
+                guard let self = self, self.transitionGen == myGen else { return }
+                self.compactArtView.isHidden  = !showMediaArt
+                self.compactEqView.isHidden   = !showMediaEq
+                self.compactPomoTag.isHidden  = !showPomoTag
+                self.compactPomoTime.isHidden = !showPomoTime
+                self.sneakLabel.isHidden      = !showSneak
+                self.headerContainer.isHidden = !showOpen
+                self.homeContainer.isHidden   = !showHome
+                self.pomoContainer.isHidden   = !showPomo
+                self.shelfContainer.isHidden  = !showShelf
+            })
+        } else {
+            compactArtView.alphaValue  = showMediaArt ? 1 : 0
+            compactEqView.alphaValue   = showMediaEq ? 1 : 0
+            compactPomoTag.alphaValue  = showPomoTag ? 1 : 0
+            compactPomoTime.alphaValue = showPomoTime ? 1 : 0
+            sneakLabel.alphaValue      = showSneak ? 1 : 0
+            headerContainer.alphaValue = showOpen ? 1 : 0
+            homeContainer.alphaValue   = showHome ? 1 : 0
+            pomoContainer.alphaValue   = showPomo ? 1 : 0
+            shelfContainer.alphaValue  = showShelf ? 1 : 0
+
+            compactArtView.isHidden  = !showMediaArt
+            compactEqView.isHidden   = !showMediaEq
+            compactPomoTag.isHidden  = !showPomoTag
+            compactPomoTime.isHidden = !showPomoTime
+            sneakLabel.isHidden      = !showSneak
+            headerContainer.isHidden = !showOpen
+            homeContainer.isHidden   = !showHome
+            pomoContainer.isHidden   = !showPomo
+            shelfContainer.isHidden  = !showShelf
         }
-
-        compactArtView.isHidden  = !showMediaArt
-        compactEqView.isHidden   = !showMediaEq
-        compactPomoTag.isHidden  = !showPomoTag
-        compactPomoTime.isHidden = !showPomoTime
-        sneakLabel.isHidden      = !showSneak
-        headerContainer.isHidden = !showOpen
-        homeContainer.isHidden   = !(showOpen && activeTab == .home)
-        pomoContainer.isHidden   = !(showOpen && activeTab == .pomo)
-        shelfContainer.isHidden  = !(showOpen && activeTab == .shelf)
 
         if showOpen {
             refreshGlancePanel()
@@ -877,7 +927,7 @@ class NotchWidgetView: NSView {
         }
 
         if needsDelayedShrink {
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) { [weak self] in
+            DispatchQueue.main.asyncAfter(deadline: .now() + shrinkDelay) { [weak self] in
                 guard let self = self, self.transitionGen == myGen, self.state == newState else { return }
                 self.shrinkWindowToSettledState()
             }
@@ -1555,7 +1605,7 @@ class NotchWidgetView: NSView {
                   (self.state == .idle || self.state == .liveActivity),
                   let w = self.window, w.isVisible else { return }
             let pt = NSEvent.mouseLocation
-            let f = w.frame
+            let f = self.isAnimatingCollapse ? self.windowFrame(for: self.state) : w.frame
             let topLimit = max(f.maxY, self.geometry.screenFrame.maxY) + 2.0
             if pt.x >= f.minX && pt.x <= f.maxX && pt.y >= f.minY && pt.y <= topLimit {
                 DispatchQueue.main.async { [self] in
