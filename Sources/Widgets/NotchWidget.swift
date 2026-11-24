@@ -345,7 +345,6 @@ class NotchWidgetView: NSView {
     private var localTickTimer: Timer?
     private var openWatchdogTimer: Timer?
     private var resyncCounter = 0
-    private var hoverOpenWorkItem: DispatchWorkItem?
     private var hoverCloseWorkItem: DispatchWorkItem?
     private var sneakDismissWorkItem: DispatchWorkItem?
     private var lastOpenedAt: Date = .distantPast
@@ -373,7 +372,6 @@ class NotchWidgetView: NSView {
         openWatchdogTimer?.invalidate()
         pomoTimer?.invalidate()
         artTask?.cancel()
-        hoverOpenWorkItem?.cancel()
         hoverCloseWorkItem?.cancel()
         sneakDismissWorkItem?.cancel()
         if let src = powerRunLoopSource {
@@ -1181,19 +1179,9 @@ class NotchWidgetView: NSView {
 
     override func mouseEntered(with event: NSEvent) {
         hoverCloseWorkItem?.cancel()
-        guard state != .open else { return }
-        hoverOpenWorkItem?.cancel()
-        let item = DispatchWorkItem { [weak self] in
-            guard let self = self else { return }
-            self.sneakDismissWorkItem?.cancel()
-            self.applyState(.open, animated: true)
-        }
-        hoverOpenWorkItem = item
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.24, execute: item)
     }
 
     override func mouseExited(with event: NSEvent) {
-        hoverOpenWorkItem?.cancel()
         guard state == .open, !isPinned, !isDraggingFileOver else { return }
         scheduleCollapse()
     }
@@ -1209,7 +1197,6 @@ class NotchWidgetView: NSView {
     }
 
     override func mouseDown(with event: NSEvent) {
-        hoverOpenWorkItem?.cancel()
         sneakDismissWorkItem?.cancel()
         if state != .open {
             applyState(.open, animated: true)
@@ -1221,7 +1208,7 @@ class NotchWidgetView: NSView {
             super.mouseDown(with: event)
             return
         }
-        if !isPinned && Date().timeIntervalSince(lastOpenedAt) > 0.45 {
+        if !isPinned && Date().timeIntervalSince(lastOpenedAt) > 0.25 {
             applyState(collapsedTargetState, animated: true)
         }
     }
@@ -1257,6 +1244,16 @@ class NotchWidgetView: NSView {
         shelfDropBox.layer?.borderColor = kBorder.cgColor
         shelfDropBox.layer?.borderWidth = kBorderWidth
         scheduleCollapse(delay: 0.5)
+    }
+
+    override func draggingEnded(_ sender: NSDraggingInfo) {
+        guard isDraggingFileOver else { return }
+        isDraggingFileOver = false
+        shelfDropBox.layer?.borderColor = kBorder.cgColor
+        shelfDropBox.layer?.borderWidth = kBorderWidth
+        if state == .open && !isPinned {
+            scheduleCollapse(delay: 0.4)
+        }
     }
 
     override func performDragOperation(_ sender: NSDraggingInfo) -> Bool {
