@@ -228,6 +228,9 @@ private final class FirstMouseContainerView: NSView {
 class NotchWidgetWindow: NSPanel {
     override var canBecomeKey: Bool { false }
     override var canBecomeMain: Bool { false }
+    override func constrainFrameRect(_ frameRect: NSRect, to screen: NSScreen?) -> NSRect {
+        frameRect
+    }
 }
 
 // MARK: - BoringNotch-Inspired Themed Notch View
@@ -252,7 +255,7 @@ class NotchWidgetView: NSView {
     // Initial compact idle window size — NSWindow shrinks/grows dynamically with notch state
     // so collapsed states NEVER block clicks over apps below the menu bar.
     static func idleWindowSize(for geom: NotchGeometry) -> NSSize {
-        NSSize(width: geom.hardwareWidth + 72, height: geom.hardwareHeight)
+        NSSize(width: geom.hardwareWidth + 72, height: ceil(geom.hardwareHeight))
     }
 
     private let openWidth: CGFloat = 570
@@ -351,6 +354,7 @@ class NotchWidgetView: NSView {
     private var currentTrackingArea: NSTrackingArea?
     private var currentNotchRect: NSRect = .zero
     private var powerRunLoopSource: CFRunLoopSource?
+    private var globalClickMonitor: Any?
     private var isTransitioningWindowFrame = false
     private var isAnimatingCollapse = false
     private var transitionGen: Int = 0
@@ -376,6 +380,9 @@ class NotchWidgetView: NSView {
         sneakDismissWorkItem?.cancel()
         if let src = powerRunLoopSource {
             CFRunLoopRemoveSource(CFRunLoopGetMain(), src, .defaultMode)
+        }
+        if let monitor = globalClickMonitor {
+            NSEvent.removeMonitor(monitor)
         }
         NotificationCenter.default.removeObserver(self)
         DistributedNotificationCenter.default().removeObserver(self)
@@ -646,11 +653,11 @@ class NotchWidgetView: NSView {
         switch targetState {
         case .idle:
             // Strictly inside menu bar: 36px clickable strip flanking physical notch, 0px below menu bar
-            return NSSize(width: hw + 72, height: hh)
+            return NSSize(width: hw + 72, height: ceil(hh))
         case .liveActivity:
             // Strictly inside the menu bar strip; 0px below menu bar
             let liveW = pomoRunning ? (hw + 112) : (hw + 86)
-            return NSSize(width: liveW, height: hh)
+            return NSSize(width: liveW, height: ceil(hh))
         case .sneak:
             // Passive track/timer banner (ignoresMouseEvents = true while shown)
             return NSSize(width: max(hw + 140, 340) + 4, height: hh + 30)
@@ -775,6 +782,10 @@ class NotchWidgetView: NSView {
 
         CATransaction.begin()
         CATransaction.setDisableActions(true)
+        // Keep a near-invisible alpha in the collapsed strip so WindowServer routes clicks cleanly
+        layer?.backgroundColor = (newState == .idle || newState == .liveActivity)
+            ? NSColor(white: 0, alpha: 0.004).cgColor
+            : NSColor.clear.cgColor
         contentHost.frame = bounds
         shapeLayer.path = newPath
         shapeLayer.fillColor = targetFill
@@ -891,6 +902,9 @@ class NotchWidgetView: NSView {
             w.setFrame(targetFrame, display: true)
         }
 
+        layer?.backgroundColor = (state == .idle || state == .liveActivity)
+            ? NSColor(white: 0, alpha: 0.004).cgColor
+            : NSColor.clear.cgColor
         contentHost.frame = bounds
         let spec = rectForState(state)
         currentNotchRect = spec.rect
@@ -1156,9 +1170,14 @@ class NotchWidgetView: NSView {
     override func hitTest(_ point: NSPoint) -> NSView? {
         let local = convert(point, from: superview)
         if state == .idle || state == .liveActivity {
-            return bounds.contains(local) ? self : nil
+            let hit = local.x >= bounds.minX - 1 && local.x <= bounds.maxX + 1
+                && local.y >= bounds.minY - 1 && local.y <= bounds.maxY + 2
+            return hit ? self : nil
         }
-        guard currentNotchRect.contains(local) else { return nil }
+        let r = currentNotchRect
+        let inside = local.x >= r.minX && local.x <= r.maxX
+            && local.y >= r.minY && local.y <= r.maxY + 2
+        guard inside else { return nil }
         return super.hitTest(point)
     }
 
@@ -1529,6 +1548,23 @@ class NotchWidgetView: NSView {
         }, ctx)?.takeRetainedValue() {
             CFRunLoopAddSource(CFRunLoopGetMain(), src, .defaultMode)
             powerRunLoopSource = src
+        }
+
+        globalClickMonitor = NSEvent.addGlobalMonitorForEvents(matching: .leftMouseDown) { [weak self] _ in
+            guard let self = self,
+                  (self.state == .idle || self.state == .liveActivity),
+                  let w = self.window, w.isVisible else { return }
+            let pt = NSEvent.mouseLocation
+            let f = w.frame
+            let topLimit = max(f.maxY, self.geometry.screenFrame.maxY) + 2.0
+            if pt.x >= f.minX && pt.x <= f.maxX && pt.y >= f.minY && pt.y <= topLimit {
+                DispatchQueue.main.async { [self] in
+                    if self.state != .open {
+                        self.sneakDismissWorkItem?.cancel()
+                        self.applyState(.open, animated: true)
+                    }
+                }
+            }
         }
     }
 
