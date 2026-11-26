@@ -243,7 +243,7 @@ class CenteredTextFieldCell: NSTextFieldCell {
 
 class MasterWidgetWindow: NSWindow {
     override var canBecomeKey: Bool  { true }
-    override var canBecomeMain: Bool { true }
+    override var canBecomeMain: Bool { false }
 }
 
 // MARK: - Color & Font Panel Delegates

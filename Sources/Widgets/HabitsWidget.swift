@@ -300,7 +300,6 @@ class AddHabitPanel: NSView, NSTextFieldDelegate {
 class DraggableListContainer: NSView {
     override var mouseDownCanMoveWindow: Bool { true }
     override func mouseDown(with event: NSEvent) {
-        window?.makeKey()
         window?.performDrag(with: event)
     }
 }

@@ -63,7 +63,6 @@ class BaseWidgetView: NSView {
         dragStart = NSEvent.mouseLocation
         if let w = window { initialWinOrigin = w.frame.origin }
         dragActive = true
-        window?.makeKey()
     }
 
     override func mouseDragged(with event: NSEvent) {

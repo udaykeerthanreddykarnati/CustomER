@@ -156,7 +156,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         notchWin.isOpaque = false
         notchWin.backgroundColor = .clear
         notchWin.level = NSWindow.Level(rawValue: Int(CGWindowLevelForKey(.statusWindow)) + 3)
-        notchWin.collectionBehavior = [.canJoinAllSpaces, .stationary, .ignoresCycle, .fullScreenAuxiliary]
+        notchWin.collectionBehavior = [.canJoinAllSpaces, .transient, .ignoresCycle, .fullScreenAuxiliary]
         notchWin.hasShadow = false
         notchWin.ignoresMouseEvents = false
         notchWin.contentView = NotchWidgetView(frame: NSRect(origin: .zero, size: initialSize))
@@ -188,7 +188,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                 self.widgetWindows.values.forEach { $0.orderOut(nil) }; return
             case "show_all", "open_all":
                 for (key, win) in self.widgetWindows where key != "wallpaper_switcher" && key != "theme_customizer" && key != "notch" {
-                    win.makeKeyAndOrderFront(nil)
+                    win.orderFrontRegardless()
                 }
                 return
             case "set_font":
@@ -217,7 +217,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                 if ["hide", "kill", "close"].contains(action) {
                     self.widgetWindows.values.forEach { $0.orderOut(nil) }
                 } else if ["show", "open"].contains(action) {
-                    self.widgetWindows.values.forEach { $0.makeKeyAndOrderFront(nil) }
+                    self.widgetWindows.values.forEach { $0.orderFrontRegardless() }
                 }
                 return
             }
@@ -232,20 +232,16 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             case "show", "open":
                 if widgetKey == "notch" {
                     (win.contentView as? NotchWidgetView)?.repositionWindowToTopCenter()
-                    win.orderFrontRegardless()
-                } else {
-                    win.makeKeyAndOrderFront(nil)
                 }
+                win.orderFrontRegardless()
                 self.setWidgetVisible(widgetKey, visible: true)
             case "toggle":
                 let nextVisible = !win.isVisible
                 if nextVisible {
                     if widgetKey == "notch" {
                         (win.contentView as? NotchWidgetView)?.repositionWindowToTopCenter()
-                        win.orderFrontRegardless()
-                    } else {
-                        win.makeKeyAndOrderFront(nil)
                     }
+                    win.orderFrontRegardless()
                 } else {
                     win.orderOut(nil)
                 }
@@ -345,11 +341,11 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         win.isOpaque = false
         win.backgroundColor = .clear
         win.level = NSWindow.Level(rawValue: -1)
-        win.collectionBehavior = [.canJoinAllSpaces, .ignoresCycle]
+        win.collectionBehavior = [.canJoinAllSpaces, .transient, .ignoresCycle]
         win.isMovableByWindowBackground = true
         win.hasShadow = false
         win.contentView = view
-        win.makeKeyAndOrderFront(nil)
+        win.orderFrontRegardless()
         windows.append(win)
         return win
     }
